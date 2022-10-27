@@ -1,0 +1,9 @@
+FROM harbor.yanggc.cn/system/ubuntu-base:22.10
+
+
+ADD nginx-1.22.1.tar.gz /usr/local/src/
+RUN cd /usr/local/src/nginx-1.22.1 && \
+    ./configure --prefix=/apps/nginx && \
+    make && \
+    make install  && \
+    ln -sv /apps/nginx/sbin/nginx /usr/bin

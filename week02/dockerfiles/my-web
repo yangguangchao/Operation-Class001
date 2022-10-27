@@ -1,0 +1,9 @@
+FROM harbor.yanggc.cn/server/nginx-base:v1.22.1
+
+RUN groupadd  -g 2088 nginx && \
+    useradd  -g nginx -s /usr/sbin/nologin -u 2088 nginx && \
+    chown -R nginx.nginx /apps/nginx
+ADD nginx.conf /apps/nginx/conf/
+ADD frontend.tar.gz /apps/nginx/html/
+
+ENTRYPOINT ["/apps/nginx/sbin/nginx","-g","daemon off;"]
