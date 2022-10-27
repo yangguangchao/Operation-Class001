@@ -1,0 +1,22 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <value>
+          <list size="9">
+            <item index="0" class="java.lang.String" itemvalue="aliyun_python_sdk_live" />
+            <item index="1" class="java.lang.String" itemvalue="alibabacloud_alidns20150109" />
+            <item index="2" class="java.lang.String" itemvalue="alibabacloud_tea_openapi" />
+            <item index="3" class="java.lang.String" itemvalue="alibabacloud_cdn20180510" />
+            <item index="4" class="java.lang.String" itemvalue="aliyun_python_sdk_core" />
+            <item index="5" class="java.lang.String" itemvalue="aliyun_python_sdk_cdn" />
+            <item index="6" class="java.lang.String" itemvalue="GitPython" />
+            <item index="7" class="java.lang.String" itemvalue="requests" />
+            <item index="8" class="java.lang.String" itemvalue="alibabacloud_ess20140828" />
+          </list>
+        </value>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
