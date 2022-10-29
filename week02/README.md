@@ -155,6 +155,7 @@ CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     B
 CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
 064e7447c3cc   magedu-c1   191.75%   120.1MiB / 256MiB   46.90%    946B / 0B   0B / 0B     5
 ```
+<<<<<<< HEAD
 
 # 3.部署http协议的harbor镜像仓库
 ## 3.1 下载harbor安装包
@@ -684,3 +685,139 @@ tomcat        7.0.88-alpine    fbea9924c4e3    8 seconds ago    linux/amd64    1
 ```
 
 
+=======
+通过观察可以看到容器内存在256MiB内浮动  
+
+### 2.1.4 限制容器交换分区内存
+* 交换分区限制参数 
+  * --memory-swap #只有在设置了 --memory 后才会有意义。使用Swap,可以让容器将超出限制部分的内存置换到磁盘上，WARNING：经常将内存交换到磁盘的应用程序会降低性能。 
+  * 不同的--memory-swap设置会产生不同的效果： 
+    * --memory-swap #值为正数， 那么--memory和--memory-swap都必须要设置，--memory-swap表示你能使用的内存和 swap分区大小的总和，例如： --memory=300m, --memory-swap=1g, 那么该容器能够使用 300m 内存和 700m swap，即--memory是实际物理内存大小值不变，而swap的实际大小计算方式为(--memory-swap)-(--memory)=容器可用swap。 
+    * --memory-swap #如果设置为0，则忽略该设置，并将该值视为未设置，即未设置交换分区。
+    * --memory-swap #如果等于--memory的值，并且--memory设置为正整数，容器无权访问swap即也有设置交换分区。 
+    * --memory-swap #如果设置为unset，如果宿主机开启了swap，则实际容器的swap值为2x(--memory)，即两倍于物理内存 大小，但是并不准确(在容器中使用free命令所看到的swap空间并不精确，毕竟每个容器都可以看到具体大小，但是宿主机的swap是有上限而且不是所有容器看到的累计大小)。 
+    * --memory-swap #如果设置为-1，如果宿主机开启了swap，则容器可以使用主机上swap的最大空间
+  
+* 交换分区限制验证
+* 交换分区限制
+```bash
+root@docker-server1:~# docker run -it --rm -m 256m --memory-swap 512m --name magedu-c1 alpine:3.16.2 sh
+root@docker-server1:~# docker stats
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O       BLOCK I/O   PIDS
+da0908874f15   magedu-c1   0.00%     872KiB / 256MiB     0.33%     1.18kB / 0B   0B / 0B     1
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O       BLOCK I/O   PIDS
+da0908874f15   magedu-c1   0.00%     872KiB / 256MiB     0.33%     1.18kB / 0B   0B / 0B     1
+q
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O       BLOCK I/O   PIDS
+da0908874f15   magedu-c1   0.00%     872KiB / 256MiB     0.33%     1.18kB / 0B   0B / 0B     1
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O       BLOCK I/O   PIDS
+da0908874f15   magedu-c1   0.00%     872KiB / 256MiB     0.33%     1.18kB / 0B   0B / 0B     1
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O       BLOCK I/O   PIDS
+da0908874f15   magedu-c1   0.00%     872KiB / 256MiB     0.33%     1.18kB / 0B   0B / 0B     1
+```
+* 内存大小软限制
+```bash
+root@docker-server1:~# docker run -it --rm -m 256m --memory-reservation 128m --name magedu-c1 lorel/docker-stress-ng --vm 2 --vm-bytes 256M
+root@docker-server1:~# docker stats
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   0.42%     130.2MiB / 256MiB   50.84%    806B / 0B   0B / 0B     5
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   0.42%     130.2MiB / 256MiB   50.84%    806B / 0B   0B / 0B     5
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   194.81%   240.3MiB / 256MiB   93.87%    806B / 0B   0B / 0B     5
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   194.81%   240.3MiB / 256MiB   93.87%    806B / 0B   0B / 0B     5
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   196.41%   193.2MiB / 256MiB   75.48%    806B / 0B   0B / 0B     5
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   196.41%   193.2MiB / 256MiB   75.48%    806B / 0B   0B / 0B     5
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   197.89%   135.6MiB / 256MiB   52.99%    806B / 0B   0B / 0B     5
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   197.89%   135.6MiB / 256MiB   52.99%    806B / 0B   0B / 0B     5
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT   MEM %     NET I/O     BLOCK I/O   PIDS
+6de55bab318a   magedu-c1   197.46%   256MiB / 256MiB     100.00%   876B / 0B   0B / 0B     5
+```
+通过观察可以看到容器内存在256MiB内浮动 
+
+* 关闭OOM机制
+```bash
+root@docker-server1:~# docker run -it --rm -m 256m --oom-kill-disable --name magedu-c1 lorel/docker-stress-ng --vm 2 --vm-bytes 256M
+WARNING: Your kernel does not support OomKillDisable. OomKillDisable discarded.
+stress-ng: info: [1] defaulting to a 86400 second run per stressor
+stress-ng: info: [1] dispatching hogs: 2 v
+# 提示内核不支持OomKillDisable，OomKillDisable被废弃
+```
+### 2.1.5 限制容器CPU
+* 只给容器分配最多2核宿主机CPU利用率
+```bash
+root@docker-server1:~# docker run -it --rm --name magedu-c1 --cpus 2 lorel/docker-stress-ng --cpu 4 --vm 4
+root@docker-server1:~# top
+top - 22:23:42 up 3 min,  2 users,  load average: 4.41, 1.40, 0.50
+Tasks: 296 total,   9 running, 287 sleeping,   0 stopped,   0 zombie
+%Cpu0  : 49.5 us,  0.3 sy,  0.0 ni, 50.2 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Cpu1  : 50.3 us,  0.3 sy,  0.0 ni, 49.3 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Cpu2  : 50.2 us,  0.3 sy,  0.0 ni, 49.5 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Cpu3  : 51.3 us,  0.3 sy,  0.0 ni, 48.3 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+# 注：CPU资源限制是将分配给容器的2核心分配到了宿主机每一核心CPU上，也就是容器的总CPU值是在宿主机的每一个核心CPU分配了部
+分比例。
+```
+* 将容器运行到指定的CPU上
+```bash
+#容器服务的cpu绑定到1和3cpu上
+root@docker-server1:~# docker run -it --rm --name magedu-c1 --cpus 2 --cpuset-cpus 1,3 lorel/docker-stress-ng --cpu 4 --vm 4
+root@docker-server1:~# top
+top - 22:27:29 up 6 min,  2 users,  load average: 1.56, 1.19, 0.60
+Tasks: 260 total,   9 running, 251 sleeping,   0 stopped,   0 zombie
+%Cpu0  :  0.0 us,  0.6 sy,  0.0 ni, 97.1 id,  0.0 wa,  0.0 hi,  2.3 si,  0.0 st
+%Cpu1  : 77.2 us, 22.5 sy,  0.0 ni,  0.3 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Cpu2  :  0.3 us,  0.0 sy,  0.0 ni, 99.7 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+%Cpu3  : 88.7 us, 11.3 sy,  0.0 ni,  0.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st
+#观察可以看到容器运行只使用了1和3cpu
+```
+* 基于cpu--shares值(共享值)对CPU进行限制，分别启动两个容器，magedu-c1的--cpu-shares值为1000，magedu-c2的--cpu-shares为500，观察最终效果，--cpu-shares值为1000的magedu-c1的CPU利用率基本是--cpu-shares为500的magedu-c2的两倍：
+```bash
+root@docker-server1:~# docker run -it --rm --name magedu-c1 --cpu-shares 1000 lorel/docker-stress-ng --cpu 4 --vm 4
+docker run -it --rm --name magedu-c2 --cpu-shares 500 lorel/docker-stress-ng --cpu 4 --vm 4
+root@docker-server1:~# docker stats
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O       BLOCK I/O   PIDS
+a4ff8f9e4b14   magedu-c2   139.47%   1.014GiB / 3.799GiB   26.68%    936B / 0B     0B / 0B     13
+c983094a539f   magedu-c1   98.03%    1.014GiB / 3.799GiB   26.69%    1.16kB / 0B   0B / 0B     13
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O       BLOCK I/O   PIDS
+a4ff8f9e4b14   magedu-c2   139.47%   1.014GiB / 3.799GiB   26.68%    936B / 0B     0B / 0B     13
+c983094a539f   magedu-c1   98.03%    1.014GiB / 3.799GiB   26.69%    1.16kB / 0B   0B / 0B     13
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O       BLOCK I/O   PIDS
+a4ff8f9e4b14   magedu-c2   130.01%   1.014GiB / 3.799GiB   26.68%    936B / 0B     0B / 0B     13
+c983094a539f   magedu-c1   268.72%   1.014GiB / 3.799GiB   26.69%    1.16kB / 0B   0B / 0B     13
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O       BLOCK I/O   PIDS
+a4ff8f9e4b14   magedu-c2   130.01%   1.014GiB / 3.799GiB   26.68%    936B / 0B     0B / 0B     13
+c983094a539f   magedu-c1   268.72%   1.014GiB / 3.799GiB   26.69%    1.16kB / 0B   0B / 0B     13
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O       BLOCK I/O   PIDS
+a4ff8f9e4b14   magedu-c2   131.27%   1.014GiB / 3.799GiB   26.68%    936B / 0B     0B / 0B     13
+c983094a539f   magedu-c1   266.41%   1.014GiB / 3.799GiB   26.69%    1.16kB / 0B   0B / 0B     13
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O       BLOCK I/O   PIDS
+a4ff8f9e4b14   magedu-c2   131.27%   1.014GiB / 3.799GiB   26.68%    936B / 0B     0B / 0B     13
+c983094a539f   magedu-c1   266.41%   1.014GiB / 3.799GiB   26.69%    1.16kB / 0B   0B / 0B     13
+
+CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O       BLOCK I/O   PIDS
+a4ff8f9e4b14   magedu-c2   131.52%   1.014GiB / 3.799GiB   26.68%    936B / 0B     0B / 0B     13
+c983094a539f   magedu-c1   264.74%   1.014GiB / 3.799GiB   26.69%    1.16kB / 0B   0B / 0B     13
+```
+>>>>>>> origin/main
