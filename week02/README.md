@@ -369,6 +369,8 @@ https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 
 Login Succeeded
 ```
+登录成功如下图：
+![登录成功](harbor/harbor-login-success.png)
 * 在harbor控制台新建3个projectweb、server、system
 ![创建project](harbor/create_project.png)
 * 把做好的分层镜像推送到harbor
