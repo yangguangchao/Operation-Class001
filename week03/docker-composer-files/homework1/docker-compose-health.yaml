@@ -1,0 +1,42 @@
+version: '3.8'
+services:
+  nginx-server:
+    image: nginx:1.22.1-alpine
+    container_name: nginx-web1
+    expose:
+      - 80
+      - 443
+    ports:
+      - "80:80"
+      - "443:443"
+    healthcheck: #添加服务健康状态检查
+      test: ["CMD", "curl", "-f", "http://127.0.0.1"]
+      interval: 5s #健康状态检查的间隔时间，默认为30s
+      timeout: 5s #单次检查的失败超时时间，默认为30s
+      retries: 3 #连续失败次数默认3次，当连续失败retries次数后将容器置为unhealthy状态
+      start_period: 60s #60s后每间隔interval的时间检查一次，连续retries次后才将容器置为unhealthy状态, 但是start_period时间内检查成功就认为是检查成功并装容器置于healthy状态
+    networks: #网络2，使用自定义的网络，如果网络不存在则会自动创建该网络并分配子网,并且容器会有两块网卡
+      - front
+      - backend
+    links:
+      - tomcat-server
+
+  tomcat-server:
+    image: tomcat:9-jre8-alpine
+    container_name: tomcat-app1
+    healthcheck: #添加服务健康状态检查
+      test: ["CMD", "nc", "-z", "-v", "localhost", "8080"]
+      interval: 5s #健康状态检查的间隔时间，默认为30s
+      timeout: 5s #单次检查的失败超时时间，默认为30s
+      retries: 3 #连续失败次数默认3次，当连续失败retries次数后将容器置为unhealthy状态
+      start_period: 60s #60s后每间隔interval的时间检查一次，连续retries次后才将容器置为unhealthy状态, 但是start_period时间内检查成功就认为是检查成功并装容器置于healthy状态
+    volumes: # 挂载本地项目目录到tomcat中
+      - /data/tomcat/webapps:/usr/local/tomcat/webapps/myweb
+    networks: #网络2，使用自定义的网络，如果网络不存在则会自动创建该网络并分配子网,并且容器会有一块网卡
+      - backend
+
+networks:
+  front: #自定义前端服务网络,需要docker-compose创建
+    driver: bridge
+  backend:  #自定义后端服务的网络,要docker-compose创建
+    driver: bridge
