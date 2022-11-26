@@ -1,0 +1,153 @@
+pipeline{
+    agent any  //全局必须带有agent,表明此pipeline执行节点
+    //agent { label 'jenkins-node1' }
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '5'))  //保留最近5个构建历史
+        disableConcurrentBuilds()  //禁用并发构建
+        }
+    //声明环境变量
+    environment {
+        //定义镜像仓库地址
+        def GIT_URL = 'git@192.168.50.201:web/my-web.git'
+        //镜像仓库变量
+        def HARBOR_URL = 'harbor.yanggc.cn'
+        //镜像项目变量
+        def IMAGE_PROJECT = 'my-web'
+        //定义凭据变量
+        def CREDENTIALS_ID = '789102f3-faed-4298-a9c0-fded847f8b5c'
+        //镜像名称变量
+        IMAGE_NAME = 'nginx'
+        def DATE = sh(script:"date +%F_%H-%M-%S", returnStdout: true).trim()  //基于shell命令获取当前时间
+    }
+    
+    //参数定义
+    parameters {
+        string(name: 'BRANCH', defaultValue:  'master', description: 'branch select')   //字符串参数，会配置在jenkins的参数化构建过程中
+        choice(name: 'DEPLOY_ENV', choices: ['develop', 'production'], description: 'deploy env')  //选项参数，会配置在jenkins的参数化构建过程中
+        }
+
+    stages{
+        stage("code clone"){
+            //#agent { label 'master' }  //具体执行的步骤节点，非必须
+			steps {
+                deleteDir() //删除workDir当前目录
+                script {
+                    if ( env.BRANCH == 'master' ) {
+                        git branch: 'master', credentialsId: CREDENTIALS_ID, url: GIT_URL
+                    } else if ( env.BRANCH == 'dev' ) {
+                        git branch: 'dev', credentialsId: CREDENTIALS_ID, url: GIT_URL
+                    } else {
+                        echo '您传递的分支参数BRANCH ERROR，请检查分支参数是否正确'
+                    }
+                    GIT_COMMIT_TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim() //获取clone完成的分支tagId,用于做镜像做tag
+		            }
+			    }
+		    }
+        stage("rollback"){
+            steps{
+                dir(env.WORKSPACE) {
+                    script {
+                        if ( env.COMMIT_ID != 'None' ){
+                            sh """
+                                git checkout ${env.COMMIT_ID} && git reset --hard HEAD
+                            """
+                            GIT_COMMIT_TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim() //获取回滚后的分支tagId,用于做镜像做tag
+                        }
+                    }
+                }
+            }
+        }
+        stage("sonarqube-scanner"){
+            //#agent { label 'master' }  //具体执行的步骤节点，非必须
+            steps{
+                dir(env.WORKSPACE) {
+                    // some block
+                    sh '/apps/sonar-scanner/bin/sonar-scanner -Dsonar.projectKey=my-web -Dsonar.projectName=my-web -Dsonar.projectVersion=1.0  -Dsonar.sources=./ -Dsonar.language=web -Dsonar.sourceEncoding=UTF-8'
+                    }
+                }
+            }
+       stage("code build"){
+            //#agent { label 'master' } 
+            steps{
+                dir(env.WORKSPACE) {
+                    // some block
+                    sh 'tar czvf frontend.tar.gz ./index.html'
+                    }
+                }
+           } 
+        stage("file sync"){  //SSH Pipeline Steps
+            //#agent { label 'master' }
+            steps{
+                dir(env.WORKSPACE) {
+                script {
+                    stage('file copy') {
+                        def remote = [:]
+                        remote.name = 'docker'
+                        remote.host = '192.168.50.205'
+                        remote.user = 'root'
+                        remote.password = '123456'
+                        remote.allowAnyHosts = true
+                            sshPut remote: remote, from: 'frontend.tar.gz', into: '/opt/my-web'  //将本地文件put到远端主机
+                        }
+                    }
+                }
+                }
+           }
+        stage("image build"){  //SSH Pipeline Steps
+            //#agent { label 'master' }
+            steps{
+                dir(env.WORKSPACE) {
+                script {
+                    stage('image put') {
+                        def remote = [:]
+                        remote.name = 'docker'
+                        remote.host = '192.168.50.205'
+                        remote.user = 'root'
+                        remote.password = '123456'
+                        remote.allowAnyHosts = true
+                            sshCommand remote: remote, command: "cd /opt/my-web && bash  docker-build.sh ${GIT_COMMIT_TAG}"
+                        }
+                    }
+                }
+                }
+            }
+        stage('docker-compose image update') {
+            steps {
+                sh """
+                    ssh root@192.168.50.206 "echo ${DATE} && cd /data/my-web && sed -i  's#image: harbor.yanggc.cn/web/my-web:.*#image: harbor.yanggc.cn/web/my-web:${GIT_COMMIT_TAG}#' docker-compose.yaml"
+                """
+                }
+            }
+        stage('docker-compose app update') {
+            steps {
+                script {
+                    stage('image update') {
+                        def remote = [:]
+                        remote.name = 'web-server'
+                        remote.host = '192.168.50.206'
+                        remote.user = 'root'
+                        remote.password = '123456'
+                        remote.allowAnyHosts = true
+                            sshCommand remote: remote, command: "cd /data/my-web && docker-compose pull && docker-compose up -d"
+                        }
+                    }
+                }
+
+            }
+        stage('send email') {
+            steps {
+              sh 'echo send email'
+            }
+            post {
+            always {
+              script {
+                mail to: 'jenkins@yanggc.cn',
+                    subject: "Pipeline Name: ${currentBuild.fullDisplayName}",
+                    body: " ${env.JOB_NAME} -Build Number-${env.BUILD_NUMBER} \n Build URL-'${env.BUILD_URL}' "
+                }
+                  }
+
+                }
+            }
+    }
+}
