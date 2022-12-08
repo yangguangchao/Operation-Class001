@@ -77,10 +77,10 @@ root@web1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f /etc/logstas
 ![access](picturs/access-nginx-01.png)
 ## 1.3 查看elasticsearch
 ![show](picturs/show-elasticsearch-01.png)
-## 1.4 kibana 创建数据试图
-* 创建试图
+## 1.4 kibana 创建数据视图
+* 创建视图
 ![create](picturs/creare-kibana-data-view-01.png)
-* 查看试图
+* 查看视图
 ![show](picturs/show-kibana-nginx-accesslog-view-01.png)
 # 2. 基于 logstash 收集 json 格式的 nginx 访问日志
 ## 2.1 配置nginx json日志格式
@@ -149,9 +149,9 @@ root@web1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f /etc/logstas
 
 ## 2.4 查看elasticsearch索引
 ![show](picturs/show-elasticsearch-index-02.png)
-## 2.5 kibana创建试图
+## 2.5 kibana创建视图
 ![create](picturs/create-kibana-nginx-accesslog-view-02.png)
-## 2.6 查看kibana试图
+## 2.6 查看kibana视图
 ![show](picturs/show-kibana-nginx-accesslog-view-02.png)
 # 3. 基于 logstash 收集 java 日志并实现多行合并
 ## 3.1 logstash配置
