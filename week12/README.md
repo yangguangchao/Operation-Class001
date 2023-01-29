@@ -9,7 +9,7 @@ root@k8s-master1:~# apt install chrony
 root@k8s-master1:~# systemctl start chrony.service
 ## 将chrony程序加入开启自启动
 root@k8s-master1:~# systemctl enable chrony.service
-## 查看服务装填
+## 查看服务状态
 root@k8s-master1:~# systemctl status chrony.service
 ```
 ## 1.2 主机名称解析
