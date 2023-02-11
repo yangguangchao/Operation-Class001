@@ -257,7 +257,7 @@ mysql        10.244.1.8:3306       45s
 ```
 ## 2.2 部署wordpress
 ```bash
-##创建WordPress 目录
+##创建wordpress目录
 root@k8s-master1:~/mysql# cd ..
 root@k8s-master1:~# mkdir wordpress
 root@k8s-master1:~# cd wordpress/
@@ -496,7 +496,7 @@ spec:
   selector:
     app: nginx
   type: NodePort
-## 应用 yaml文件
+## 应用yaml文件
 root@k8s-master1:~/nginx# k apply -f nginx.yaml
 deployment.apps/nginx created
 service/nginx created
@@ -642,9 +642,11 @@ spec:
 ## 应用yaml文件
 root@k8s-master1:~/mysql# k apply -f mysql-pvc.yaml
 persistentvolumeclaim/mysql-pvc created
+## 查看pvc
 root@k8s-master1:~/mysql# k get pvc
 NAME        STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
 mysql-pvc   Bound    pvc-a5a2860a-0b61-4fda-aff2-3143ed109457   10Gi       RWX            nfs-csi        3s
+## 查看pv
 root@k8s-master1:~/mysql# k get pv
 NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM               STORAGECLASS   REASON   AGE
 pvc-a5a2860a-0b61-4fda-aff2-3143ed109457   10Gi       RWX            Delete           Bound    default/mysql-pvc   nfs-csi                 6s
@@ -660,14 +662,14 @@ data:
   root.password: WWdjMjAyMzAyMTFA
   user.name: d29yZHByZXNz
   user.password: d29yZHByZXNz
-## 应用 yaml 文件
+## 应用yaml文件
 root@k8s-master1:~/mysql# k apply -f mysql-secret.yaml
 secret/mysql-secret created
 ## 查看secret
 root@k8s-master1:~/mysql# k get secret
 NAME           TYPE     DATA   AGE
 mysql-secret   Opaque   5      16s
-## mysql 资源编排yaml文件
+## mysql资源编排yaml文件
 root@k8s-master1:~/mysql# vi mysql.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -769,7 +771,7 @@ spec:
   resources:
     requests:
       storage: 10Gi
-## 应用 yaml 文件
+## 应用yaml文件
 root@k8s-master1:~/wordpress# k apply -f wordpress-data.yaml
 persistentvolumeclaim/wordpress-pvc created
 ## 查看pvc
@@ -782,7 +784,7 @@ root@k8s-master1:~/wordpress# k get pv
 NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                   STORAGECLASS   REASON   AGE
 pvc-a5a2860a-0b61-4fda-aff2-3143ed109457   10Gi       RWX            Delete           Bound    default/mysql-pvc       nfs-csi                 9m15s
 pvc-e4c6f23f-d2b8-4b9f-9fca-2bd926cd81a3   10Gi       RWX            Delete           Bound    default/wordpress-pvc   nfs-csi                 5s
-## wordpress deploy和service 资源编排yaml文件
+## wordpress deploy和service资源编排yaml文件
 root@k8s-master1:~/wordpress# vi wordpress.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -912,7 +914,7 @@ data:
 kind: ConfigMap
 metadata:
   name: nginx-conf
-## 应用 yaml 文件
+## 应用yaml文件
 root@k8s-master1:~/nginx# k apply -f nginx-conf-configmap.yaml
 configmap/nginx-conf created
 ## 查看configmap
@@ -920,7 +922,7 @@ root@k8s-master1:~/nginx# k get cm
 NAME               DATA   AGE
 kube-root-ca.crt   1      18d
 nginx-conf         1      3s
-## nginx deploy和service 资源编排 yaml 文件
+## nginx deploy和service资源编排yaml文件
 root@k8s-master1:~/nginx# vi nginx.yaml
 apiVersion: apps/v1
 kind: Deployment
