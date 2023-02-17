@@ -1,4 +1,187 @@
-## 1.2 
+# 1. wordpress示例中
+## 1.1 使用statefulset编排运行mysql，实例数为1
+```bash
+## 拉取实例代码
+root@k8s-master1:~# git clone https://ghproxy.com/github.com/iKubernetes/learning-k8s.git
+## 进入mysql资源编排目录
+root@k8s-master1:~# cd learning-k8s/wordpress/mysql
+## 修改 mysql 为 statefulset编排
+root@k8s-master1:~/learning-k8s/wordpress/mysql# vi 04-deploy-mysql.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: mysql
+  name: mysql
+spec:
+  serviceName: mysql
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - image: mysql:8.0
+        name: mysql
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: root.password
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: user.name
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: user.password
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: database.name
+        volumeMounts:
+        - name: mysql-data
+          mountPath: /var/lib/mysql/
+      volumes:
+      - name: mysql-data
+        persistentVolumeClaim:
+          claimName: mysql-data
+## 修改mysql service 为headless service
+root@k8s-master1:~/learning-k8s/wordpress/mysql# vi 03-service-mysql.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mysql
+  name: mysql
+spec:
+  clusterIP: None
+  ports:
+  - name: mysql
+    port: 3306
+    protocol: TCP
+    targetPort: 3306
+  selector:
+    app: mysql
+  type: ClusterIP
+## 部署mysql
+root@k8s-master1:~/learning-k8s/wordpress/mysql# cd ..
+root@k8s-master1:~/learning-k8s/wordpress# k apply -f mysql/
+secret/mysql-user-pass created
+persistentvolumeclaim/mysql-data created
+service/mysql created
+statefulset.apps/mysql created
+## 查看部署的资源
+root@k8s-master1:~/learning-k8s/wordpress# k get pod,svc,ep,secret
+NAME          READY   STATUS    RESTARTS   AGE
+pod/mysql-0   1/1     Running   0          70s
+
+NAME                 TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)    AGE
+service/kubernetes   ClusterIP   10.96.0.1    <none>        443/TCP    19d
+service/mysql        ClusterIP   None         <none>        3306/TCP   70s
+
+NAME                   ENDPOINTS             AGE
+endpoints/kubernetes   192.168.50.201:6443   19d
+endpoints/mysql        10.244.1.14:3306      70s
+
+NAME                     TYPE     DATA   AGE
+secret/mysql-user-pass   Opaque   4      70s
+## 部署wordpress
+root@k8s-master1:~/learning-k8s/wordpress# k apply -f wordpress/
+service/wordpress created
+persistentvolumeclaim/wordpress-app-data created
+deployment.apps/wordpress created
+## 查看部署的资源
+root@k8s-master1:~/learning-k8s/wordpress# k get pod,svc,ep,secret
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/mysql-0                      1/1     Running   0          2m12s
+pod/wordpress-664cfb496b-zbwgl   1/1     Running   0          24s
+
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE
+service/kubernetes   ClusterIP   10.96.0.1      <none>        443/TCP    19d
+service/mysql        ClusterIP   None           <none>        3306/TCP   2m12s
+service/wordpress    ClusterIP   10.103.69.45   <none>        9000/TCP   24s
+
+NAME                   ENDPOINTS             AGE
+endpoints/kubernetes   192.168.50.201:6443   19d
+endpoints/mysql        10.244.1.14:3306      2m12s
+endpoints/wordpress    10.244.3.11:9000      24s
+
+NAME                     TYPE     DATA   AGE
+secret/mysql-user-pass   Opaque   4      2m12s
+## 修改nginx service externalIP配置
+root@k8s-master1:~/learning-k8s/wordpress# cd nginx/
+root@k8s-master1:~/learning-k8s/wordpress/nginx# ls
+01-configmap-nginx-conf.yaml  02-service-nginx.yaml  03-deployment-nginx.yaml
+root@k8s-master1:~/learning-k8s/wordpress/nginx# vi 02-service-nginx.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nginx
+  name: nginx
+spec:
+  ports:
+  - name: http-80
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: nginx
+  type: NodePort
+  externalIPs:
+  - 192.168.50.100
+## 部署nginx
+root@k8s-master1:~/learning-k8s/wordpress/nginx# cd ../
+root@k8s-master1:~/learning-k8s/wordpress# k apply -f nginx/
+configmap/nginx-conf created
+service/nginx created
+deployment.apps/nginx created
+## 查看部署的资源
+root@k8s-master1:~/learning-k8s/wordpress# k get pod,svc,ep,secret,cm
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/mysql-0                      1/1     Running   0          6m
+pod/nginx-5b9c7b4c8f-zvcmn       1/1     Running   0          38s
+pod/wordpress-664cfb496b-zbwgl   1/1     Running   0          4m12s
+
+NAME                 TYPE        CLUSTER-IP       EXTERNAL-IP      PORT(S)        AGE
+service/kubernetes   ClusterIP   10.96.0.1        <none>           443/TCP        19d
+service/mysql        ClusterIP   None             <none>           3306/TCP       6m
+service/nginx        NodePort    10.101.107.216   192.168.50.100   80:32406/TCP   38s
+service/wordpress    ClusterIP   10.103.69.45     <none>           9000/TCP       4m12s
+
+NAME                   ENDPOINTS             AGE
+endpoints/kubernetes   192.168.50.201:6443   19d
+endpoints/mysql        10.244.1.14:3306      6m
+endpoints/nginx        10.244.2.12:80        38s
+endpoints/wordpress    10.244.3.11:9000      4m12s
+
+NAME                     TYPE     DATA   AGE
+secret/mysql-user-pass   Opaque   4      6m
+
+NAME                         DATA   AGE
+configmap/kube-root-ca.crt   1      19d
+configmap/nginx-conf         1      38s
+```
+* 访问wordpress
+![language](pictures/wp-select-language-01.png)
+* 配置站点信息
+![config](pictures/wordpress-setup-configuration-01.png)
+* 安装成功
+![success](pictures/wordpress-install-success-01.png)
+* 访问站点
+![access](pictures/wordpress-access-01.png)
+
+## 1.2 换成使用Operator编排运行mysql，实例数为1+
 ### 1.2.1 安装helm
 ```bash
 root@k8s-master1:~# wget https://get.helm.sh/helm-v3.11.1-linux-amd64.tar.gz
@@ -205,7 +388,6 @@ spec:
         storage: 40Gi
     # 定义存储类
     storageClassName: nfs-csi
-## 创建InnoDBCluster资源
 ## 使用kubectl创建资源
 root@k8s-master1:~# kubectl apply -f mysql-cluster01-default.yaml 
 innodbcluster.mysql.oracle.com/mysql-cluster01 created
@@ -257,7 +439,7 @@ If you don't see a command prompt, try pressing enter.
 Query OK, 1 row affected (0.0085 sec)
  MySQL  mysql-cluster01:33060+ ssl  SQL >create user 'wordpress'@'%' identified with mysql_native_password BY 'Wordpress@2023';
 Query OK, 0 rows affected (0.0082 sec)
- MySQL  mysql-cluster01:33060+ ssl  SQL > grant all privileges on *.* to 'wordpress'@'%' with grant option;
+ MySQL  mysql-cluster01:33060+ ssl  SQL > grant all privileges on wordpress.* to 'wordpress'@'%' with grant option;
 Query OK, 0 rows affected (0.0053 sec)
  MySQL  mysql-cluster01:33060+ ssl  SQL >  flush privileges;
 ```
@@ -404,3 +586,668 @@ configmap/nginx-conf                 1      31s
 ![config](pictures/wp-setup-configuration-02.png)
 * 访问首页
 ![access](pictures/wp-test-access-02.png)
+
+## 1.3 将mysql以传统模型的主从复制的形式运行于Kubernetes外部，让运行在Kubernetes集群上的wordpress去访问外部的MySQL服务
+### 1.3.1 安装mysql服务
+* 192.168.50.211 mysql-node1
+* 192.168.50.212 mysql-node2
+* 操作命令需要在每个节点执行，这里只展示一个节点
+```bash
+## 设置时钟同步
+root@mysql-node1:~# apt install chrony -y
+root@mysql-node1:~# systemctl enable chrony.service 
+root@mysql-node1:~# systemctl status chrony.service
+## 下载yaml源配置包
+root@mysql-node1:~# wget https://repo.mysql.com//mysql-apt-config_0.8.24-1_all.deb
+## 安装yaml源配置包
+root@mysql-node1:~# dpkg -i mysql-apt-config_0.8.24-1_all.deb
+## 检查更新
+root@mysql-node1:~# apt update
+## 查看 mysql-server版本
+root@mysql-node1:~# apt-cache madison mysql-server
+mysql-server | 8.0.32-1ubuntu22.04 | http://repo.mysql.com/apt/ubuntu jammy/mysql-8.0 amd64 Packages
+mysql-server | 8.0.32-0ubuntu0.22.04.2 | http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages
+mysql-server | 8.0.32-0ubuntu0.22.04.2 | http://archive.ubuntu.com/ubuntu jammy-security/main amd64 Packages
+mysql-server | 8.0.32-0buntu0.22.04.1 | http://archive.ubuntu.com/ubuntu jammy-updates/main amd64 Packages
+mysql-server | 8.0.28-0ubuntu4 | http://archive.ubuntu.com/ubuntu jammy/main amd64 Packages
+mysql-community | 8.0.32-1ubuntu22.04 | http://repo.mysql.com/apt/ubuntu jammy/mysql-8.0 Sources
+## 安装mysql server
+root@mysql-node1:~# apt install mysql-server -y
+```
+### 1.3.2 配置mysql主从集群
+```bash
+## 配置主数据库服务器
+root@mysql-node1:~# vi /etc/mysql/mysql.conf.d/mysqld.cnf
+[mysqld]
+pid-file	= /var/run/mysqld/mysqld.pid
+socket		= /var/run/mysqld/mysqld.sock
+datadir		= /var/lib/mysql
+log-error	= /var/log/mysql/error.log
+server-id = 1
+log-bin		= /var/log/mysql/mysql-bin.log
+tmpdir 		= /tmp
+binlog_format 	= ROW
+max_binlog_size = 800M
+sync_binlog 	= 1
+expire-logs-days = 5
+slow_query_log = 1
+slow_query_log_file = /var/lib/mysql/mysqld-slow.log
+## 重启主节点mysql
+root@mysql-node1:~# systemctl restart mysql
+## 查看mysql状态
+root@mysql-node1:~# systemctl status mysql
+## 主节点创建同步账号
+root@mysql-node1:~# mysql -uroot -pygc@2023
+mysql> CREATE USER rsync@'%' IDENTIFIED BY 'rsync@2023';
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> GRANT REPLICATION SLAVE on *.* to rsync@'%';
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> SHOW GRANTS FOR rsync@'%';
++-----------------------------------------------+
+| Grants for rsync@%                            |
++-----------------------------------------------+
+| GRANT REPLICATION SLAVE ON *.* TO `rsync`@`%` |
++-----------------------------------------------+
+1 row in set (0.00 sec)
+
+mysql> FLUSH PRIVILEGES;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> exit
+Bye
+## 配置从数据库节点
+root@mysql-node2:~# vi /etc/mysql/mysql.conf.d/mysqld.cnf
+[mysqld]
+pid-file        = /var/run/mysqld/mysqld.pid
+socket          = /var/run/mysqld/mysqld.sock
+datadir         = /var/lib/mysql
+log-error       = /var/log/mysql/error.log
+log_bin         = /var/log/mysql/mysql-bin.log
+server-id       = 2
+read_only       = 1
+tmpdir          = /tmp
+binlog_format   = ROW
+max_binlog_size = 800M
+sync_binlog     = 1
+expire-logs-days = 5
+slow_query_log  = 2
+## 重启从节点mysql
+root@mysql-node2:~# systemctl restart mysql
+## 查看mysql状态
+root@mysql-node2:~# systemctl status mysql
+## 查看主服务器状态
+root@mysql-node1:~# mysql -uroot -pygc@2023
+mysql> SHOW MASTER STATUS\G
+*************************** 1. row ***************************
+             File: mysql-bin.000001
+         Position: 829
+     Binlog_Do_DB: 
+ Binlog_Ignore_DB: 
+Executed_Gtid_Set: 
+1 row in set (0.00 sec)
+## 从服务器连接主服务器
+root@mysql-node2:~# mysql -uroot -pygc@2023
+## 停止从属线程 
+mysql> STOP SLAVE;
+Query OK, 0 rows affected, 2 warnings (0.00 sec)
+## 设置从服务器以复制主服务器
+mysql> CHANGE MASTER TO MASTER_HOST='192.168.50.211', MASTER_USER='rsync', MASTER_PASSWORD='rsync@2023', MASTER_LOG_FILE='mysql-bin.000001', MASTER_LOG_POS=829;
+Query OK, 0 rows affected, 8 warnings (0.02 sec)
+## 现在激活从服务器
+mysql> START SLAVE;
+Query OK, 0 rows affected, 1 warning (0.02 sec)
+## 查询验证从服务器状态
+mysql> SHOW SLAVE STATUS\G;
+*************************** 1. row ***************************
+               Slave_IO_State: Waiting for source to send event
+                  Master_Host: 192.168.50.211
+                  Master_User: rsync
+                  Master_Port: 3306
+                Connect_Retry: 60
+              Master_Log_File: mysql-bin.000001
+          Read_Master_Log_Pos: 829
+               Relay_Log_File: mysql-node2-relay-bin.000002
+                Relay_Log_Pos: 326
+        Relay_Master_Log_File: mysql-bin.000001
+             Slave_IO_Running: Yes
+            Slave_SQL_Running: Yes
+              Replicate_Do_DB: 
+          Replicate_Ignore_DB: 
+           Replicate_Do_Table: 
+       Replicate_Ignore_Table: 
+      Replicate_Wild_Do_Table: 
+  Replicate_Wild_Ignore_Table: 
+                   Last_Errno: 0
+                   Last_Error: 
+                 Skip_Counter: 0
+          Exec_Master_Log_Pos: 829
+              Relay_Log_Space: 542
+              Until_Condition: None
+               Until_Log_File: 
+                Until_Log_Pos: 0
+           Master_SSL_Allowed: No
+           Master_SSL_CA_File: 
+           Master_SSL_CA_Path: 
+              Master_SSL_Cert: 
+            Master_SSL_Cipher: 
+               Master_SSL_Key: 
+        Seconds_Behind_Master: 0
+Master_SSL_Verify_Server_Cert: No
+                Last_IO_Errno: 0
+                Last_IO_Error: 
+               Last_SQL_Errno: 0
+               Last_SQL_Error: 
+  Replicate_Ignore_Server_Ids: 
+             Master_Server_Id: 1
+                  Master_UUID: e3775ba5-aea1-11ed-928d-0050563cbeee
+             Master_Info_File: mysql.slave_master_info
+                    SQL_Delay: 0
+          SQL_Remaining_Delay: NULL
+      Slave_SQL_Running_State: Replica has read all relay log; waiting for more updates
+           Master_Retry_Count: 86400
+                  Master_Bind: 
+      Last_IO_Error_Timestamp: 
+     Last_SQL_Error_Timestamp: 
+               Master_SSL_Crl: 
+           Master_SSL_Crlpath: 
+           Retrieved_Gtid_Set: 
+            Executed_Gtid_Set: 
+                Auto_Position: 0
+         Replicate_Rewrite_DB: 
+                 Channel_Name: 
+           Master_TLS_Version: 
+       Master_public_key_path: 
+        Get_master_public_key: 0
+            Network_Namespace: 
+1 row in set, 1 warning (0.00 sec)
+## 主服务器上创建wordpress数据库
+root@mysql-node1:~# mysql -uroot -pygc@2023
+mysql> CREATE DATABASE wordpress;
+Query OK, 1 row affected (0.02 sec)
+
+mysql> SHOW DATABASES;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| performance_schema |
+| sys                |
+| wordpress          |
++--------------------+
+5 rows in set (0.00 sec)
+## 查看从服务器数据库
+root@mysql-node2:~# mysql -uroot -pygc@2023
+mysql> SHOW DATABASES;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| performance_schema |
+| sys                |
+| wordpress          |
++--------------------+
+5 rows in set (0.00 sec)
+## 创建wordpress 数据库和账号
+root@mysql-node1:~# mysql -uroot -pygc@2023
+mysql> create user 'wordpress'@'%' identified with mysql_native_password BY 'Wordpress@2023';
+Query OK, 0 rows affected (0.02 sec)
+
+mysql> grant all privileges on wordpress.* to 'wordpress'@'%' with grant option;
+Query OK, 0 rows affected (0.00 sec)
+```
+### 1.3.3 安装wordpress
+```bash
+## 清理1.2中创建的资源
+root@k8s-master1:~# cd learning-k8s/wordpress/
+root@k8s-master1:~/learning-k8s/wordpress# k delete -f nginx/
+configmap "nginx-conf" deleted
+service "nginx" deleted
+deployment.apps "nginx" deleted
+root@k8s-master1:~/learning-k8s/wordpress# k delete -f wordpress/
+service "wordpress" deleted
+persistentvolumeclaim "wordpress-app-data" deleted
+deployment.apps "wordpress" deleted
+root@k8s-master1:~/learning-k8s/wordpress# cd mysql
+root@k8s-master1:~/learning-k8s/wordpress/mysql# k delete -f 01-secret-mysql.yaml 
+secret "mysql-user-pass" deleted
+root@k8s-master1:~/learning-k8s/wordpress/mysql# cd
+root@k8s-master1:~# ls
+cri-dockerd_0.3.0.3-0.ubuntu-jammy_amd64.deb  helm-v3.11.1-linux-amd64.tar.gz  learning-k8s  linux-amd64  mysql-cluster01-default.yaml  snap
+root@k8s-master1:~# k delete -f mysql-cluster01-default.yaml 
+innodbcluster.mysql.oracle.com "mysql-cluster01" deleted
+## 编辑mysql secret yaml
+root@k8s-master1:~# cd learning-k8s/wordpress/mysql
+root@k8s-master1:~/learning-k8s/wordpress/mysql# vi 01-secret-mysql.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  creationTimestamp: null
+  name: mysql-user-pass
+data:
+  database.name: d29yZHByZXNz
+  root.password: WWdjQDIwMjM=
+  user.name: d29yZHByZXNz
+  user.password: V29yZHByZXNzQDIwMjM=
+## 应用资源文件
+root@k8s-master1:~/learning-k8s/wordpress/mysql# k apply -f 01-secret-mysql.yaml 
+secret/mysql-user-pass created
+root@k8s-master1:~/learning-k8s/wordpress/mysql# k get secret
+NAME              TYPE     DATA   AGE
+mysql-user-pass   Opaque   4      48s
+## 编辑mysql service 资源编排文件
+root@k8s-master1:~/learning-k8s/wordpress/mysql# vi 03-service-mysql.yaml 
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: mysql
+subsets:
+- addresses:
+  - ip: 192.168.50.211
+  ports:
+  - name: mysql
+    port: 3306
+    protocol: TCP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: mysql
+  name: mysql
+spec:
+  ports:
+  - name: mysql
+    port: 3306
+    protocol: TCP
+    targetPort: 3306
+  type: ClusterIP
+## 应用yaml文件
+root@k8s-master1:~/learning-k8s/wordpress/mysql# k apply -f 03-service-mysql.yaml
+## 查看创建的资源
+root@k8s-master1:~/learning-k8s/wordpress/mysql# k get svc,ep
+NAME                 TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE
+service/kubernetes   ClusterIP   10.96.0.1      <none>        443/TCP    24d
+service/mysql        ClusterIP   10.102.69.33   <none>        3306/TCP   8m44s
+
+NAME                   ENDPOINTS             AGE
+endpoints/kubernetes   192.168.50.201:6443   24d
+endpoints/mysql        192.168.50.211:3306   8m44s
+## 部署wordpress
+root@k8s-master1:~/learning-k8s/wordpress/mysql# cd ..
+root@k8s-master1:~/learning-k8s/wordpress# k apply -f wordpress/
+service/wordpress created
+persistentvolumeclaim/wordpress-app-data created
+deployment.apps/wordpress created
+## 查看创建的资源
+root@k8s-master1:~/learning-k8s/wordpress# k get pod,svc,pvc
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/wordpress-8c8989d67-vlhpk   1/1     Running   0          98s
+
+NAME                 TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+service/kubernetes   ClusterIP   10.96.0.1        <none>        443/TCP    24d
+service/mysql        ClusterIP   10.102.69.33     <none>        3306/TCP   12m
+service/wordpress    ClusterIP   10.103.211.169   <none>        9000/TCP   98s
+
+NAME                                       STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/wordpress-app-data   Bound    pvc-778a6849-4db0-476d-b220-71665896a8fb   10Gi       RWX            nfs-csi        98s
+## 修改nginx service yaml文件
+root@k8s-master1:~/learning-k8s/wordpress# vi nginx/02-service-nginx.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nginx
+  name: nginx
+spec:
+  ports:
+  - name: http-80
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: nginx
+  type: NodePort
+  externalIPs:
+  - 192.168.50.100
+## 部署nginx
+root@k8s-master1:~/learning-k8s/wordpress# k apply -f nginx/
+## 查看创建的资源
+root@k8s-master1:~/learning-k8s/wordpress# k get pod,svc,cm
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/nginx-5b9c7b4c8f-lzfjf      1/1     Running   0          13s
+pod/wordpress-8c8989d67-vlhpk   1/1     Running   0          4m13s
+
+NAME                 TYPE        CLUSTER-IP       EXTERNAL-IP      PORT(S)        AGE
+service/kubernetes   ClusterIP   10.96.0.1        <none>           443/TCP        24d
+service/mysql        ClusterIP   10.102.69.33     <none>           3306/TCP       14m
+service/nginx        NodePort    10.104.3.162     192.168.50.100   80:30669/TCP   13s
+service/wordpress    ClusterIP   10.103.211.169   <none>           9000/TCP       4m13s
+
+NAME                         DATA   AGE
+configmap/kube-root-ca.crt   1      24d
+configmap/nginx-conf         1      13s
+```
+* wordpress安装首页
+![language](pictures/wp-select-language-03.png)
+* wordpress配置页面
+![config](pictures/wp-setup-configuration-03.png)
+* 安装完成
+![success](pictures/wp-install-success-03.png)
+* 访问测试
+![access](pictures/wp-access-test-03.png)
+# 2.wordpress实例扩展至多个，测试应用是否工作正常；
+```bash
+## 修改 wordpress 副本数量为3
+root@k8s-master1:~/learning-k8s/wordpress# vi wordpress/03-deployment-wordpress.yaml
+root@k8s-master1:~/learning-k8s/wordpress/wordpress# vi 03-deployment-wordpress.yaml 
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: wordpress
+  name: wordpress
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: wordpress
+  template:
+    metadata:
+      labels:
+        app: wordpress
+    spec:
+      containers:
+      - image: wordpress:6.1.1-fpm
+        name: wordpress
+        env:
+        - name: WORDPRESS_DB_HOST
+          value: mysql
+        - name: WORDPRESS_DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: user.name
+        - name: WORDPRESS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: user.password
+        - name: WORDPRESS_DB_NAME
+          valueFrom:
+            secretKeyRef:
+              name: mysql-user-pass
+              key: database.name
+        volumeMounts:
+        - name: wordpress-app-data
+          mountPath: /var/www/html/
+      volumes:
+      - name: wordpress-app-data
+        persistentVolumeClaim:
+          claimName: wordpress-app-data
+## 应用变更的yaml文件
+root@k8s-master1:~/learning-k8s/wordpress# k apply -f wordpress/
+service/wordpress unchanged
+persistentvolumeclaim/wordpress-app-data unchanged
+deployment.apps/wordpress configured
+## 查看deploy
+root@k8s-master1:~/learning-k8s/wordpress# k get deploy 
+NAME        READY   UP-TO-DATE   AVAILABLE   AGE
+nginx       1/1     1            1           16m
+wordpress   2/3     3            2           20m
+## 查看pod
+root@k8s-master1:~/learning-k8s/wordpress# k get pod
+NAME                        READY   STATUS    RESTARTS   AGE
+nginx-5b9c7b4c8f-lzfjf      1/1     Running   0          16m
+wordpress-8c8989d67-dmj5w   1/1     Running   0          63s
+wordpress-8c8989d67-ntt75   1/1     Running   0          63s
+wordpress-8c8989d67-vlhpk   1/1     Running   0          20m
+```
+* 创建新文章的页面，多次刷新页面正常显示
+![access](pictures/wp-create-blog-04.png)
+
+# 3. Nginx实例扩展至多个，测试应用是否工作正常；额外为nginx添加https虚拟主机
+## 3.1 扩展nginx实例
+```bash
+## 修改nginx副本为5个
+root@k8s-master1:~/learning-k8s/wordpress# vi nginx/03-deployment-nginx.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: nginx
+  name: nginx
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: nginx
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      volumes:
+      - name: ngxconf
+        configMap:
+          name: nginx-conf
+      - name: wordpress-app-data
+        persistentVolumeClaim:
+          claimName: wordpress-app-data
+      containers:
+      - image: nginx:1.20-alpine
+        name: nginx
+        volumeMounts:
+        - name: ngxconf
+          mountPath: /etc/nginx/conf.d/
+        - name: wordpress-app-data
+          mountPath: /var/www/html/
+## 应用变更的yaml文件
+root@k8s-master1:~/learning-k8s/wordpress# k apply -f nginx/
+configmap/nginx-conf configured
+service/nginx unchanged
+deployment.apps/nginx configured
+## 查看deploy
+root@k8s-master1:~/learning-k8s/wordpress# k get deploy nginx
+NAME    READY   UP-TO-DATE   AVAILABLE   AGE
+nginx   5/5     5            5           4h30m
+
+## 查看pod 
+root@k8s-master1:~/learning-k8s/wordpress# k get pod -l app=nginx -o wide
+NAME                     READY   STATUS    RESTARTS   AGE     IP            NODE        NOMINATED NODE   READINESS GATES
+nginx-5b9c7b4c8f-bbzwh   1/1     Running   0          106s    10.244.1.12   k8s-node1   <none>           <none>
+nginx-5b9c7b4c8f-fjhkg   1/1     Running   0          106s    10.244.3.18   k8s-node3   <none>           <none>
+nginx-5b9c7b4c8f-lzfjf   1/1     Running   0          4h31m   10.244.1.10   k8s-node1   <none>           <none>
+nginx-5b9c7b4c8f-qg4mc   1/1     Running   0          106s    10.244.2.11   k8s-node2   <none>           <none>
+nginx-5b9c7b4c8f-vbm9p   1/1     Running   0          106s    10.244.2.12   k8s-node2   <none>           <none>
+```
+* 测试 wordpress，刷新浏览器多次页正常
+![](pictures/wp-access-test05.png)
+
+## 3.2 配置https证书
+```
+## 生成IP 自签名证书
+root@k8s-master1:~# mkdir ssl
+root@k8s-master1:~# cd ssl/
+root@k8s-master1:~/ssl# openssl req \
+-newkey rsa:2048 \
+-x509 \
+-nodes \
+-keyout file.key \
+-new \
+-out file.crt \
+-subj /CN=Hostname \
+-reqexts SAN \
+-extensions SAN \
+-config <(cat /etc/ssl/openssl.cnf \
+    <(printf '[SAN]\nsubjectAltName=DNS:hostname,IP:192.168.50.100')) \
+-sha256 \
+-days 3650
+## 创建secret
+root@k8s-master1:~/ssl# k create secret tls wordpress-ssl --key file.key --cert file.crt
+secret/wordpress-ssl created
+## 修改ninx configmap资源编排文件
+root@k8s-master1:~/learning-k8s/wordpress# cd nginx/
+root@k8s-master1:~/learning-k8s/wordpress/nginx# vi 01-configmap-nginx-conf.yaml
+apiVersion: v1
+data:
+  nginx.conf: |
+    server {
+            listen 80;
+            listen 443 ssl;
+
+            server_name 192.168.50.100;
+            ssl_certificate /etc/ssl/tls.crt;
+            ssl_certificate_key /etc/ssl/tls.key;
+
+            index index.php index.html index.htm;
+
+            root /var/www/html;
+
+            location ~ /.well-known/acme-challenge {
+                    allow all;
+                    root /var/www/html;
+            }
+
+            location / {
+                    try_files $uri $uri/ /index.php$is_args$args;
+            }
+
+            location ~ \.php$ {
+                    try_files $uri =404;
+                    fastcgi_split_path_info ^(.+\.php)(/.+)$;
+                    fastcgi_pass wordpress:9000;
+                    fastcgi_index index.php;
+                    include fastcgi_params;
+                    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                    fastcgi_param PATH_INFO $fastcgi_path_info;
+            }
+
+            location ~ /\.ht {
+                    deny all;
+            }
+
+            location = /favicon.ico {
+                    log_not_found off; access_log off;
+            }
+            location = /robots.txt {
+                    log_not_found off; access_log off; allow all;
+            }
+            location ~* \.(css|gif|ico|jpeg|jpg|js|png)$ {
+                    expires max;
+                    log_not_found off;
+            }
+    }
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: nginx-conf
+## 修改ninx service资源编排文件
+root@k8s-master1:~/learning-k8s/wordpress/nginx# vi 02-service-nginx.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: nginx
+  name: nginx
+spec:
+  ports:
+  - name: http-80
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  - name: https-443
+    port: 443
+    protocol: TCP
+    targetPort: 443
+  selector:
+    app: nginx
+  type: NodePort
+  externalIPs:
+  - 192.168.50.100
+## 修改ninx deployment资源编排文件
+root@k8s-master1:~/learning-k8s/wordpress/nginx# vi 03-deployment-nginx.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: nginx
+  name: nginx
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: nginx
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      volumes:
+      - name: ngxconf
+        configMap:
+          name: nginx-conf
+      - name: wordpress-app-data
+        persistentVolumeClaim:
+          claimName: wordpress-app-data
+      - name: wordpress-ssl
+        secret:
+          secretName: wordpress-ssl
+      containers:
+      - image: nginx:1.20-alpine
+        name: nginx
+        volumeMounts:
+        - name: ngxconf
+          mountPath: /etc/nginx/conf.d/
+        - name: wordpress-app-data
+          mountPath: /var/www/html/
+        - name: wordpress-ssl
+          mountPath: /etc/ssl/
+          readOnly: true
+## 应用nginx 资源编排文件
+root@k8s-master1:~/learning-k8s/wordpress# k apply -f nginx/
+configmap/nginx-conf configured
+service/nginx configured
+deployment.apps/nginx configured
+## 查看资源状态
+root@k8s-master1:~/learning-k8s/wordpress# k get pod,svc,cm
+NAME                            READY   STATUS    RESTARTS   AGE
+pod/nginx-6c77845b45-fbl7g      1/1     Running   0          28s
+pod/nginx-6c77845b45-fs2jl      1/1     Running   0          24s
+pod/nginx-6c77845b45-ht2vn      1/1     Running   0          22s
+pod/nginx-6c77845b45-kmj4h      1/1     Running   0          26s
+pod/nginx-6c77845b45-xxn56      1/1     Running   0          25s
+pod/wordpress-8c8989d67-dmj5w   1/1     Running   0          4h53m
+pod/wordpress-8c8989d67-ntt75   1/1     Running   0          4h53m
+pod/wordpress-8c8989d67-vlhpk   1/1     Running   0          5h13m
+
+NAME                 TYPE        CLUSTER-IP       EXTERNAL-IP      PORT(S)                      AGE
+service/kubernetes   ClusterIP   10.96.0.1        <none>           443/TCP                      24d
+service/mysql        ClusterIP   10.102.69.33     <none>           3306/TCP                     5h23m
+service/nginx        NodePort    10.104.3.162     192.168.50.100   80:30669/TCP,443:32622/TCP   5h9m
+service/wordpress    ClusterIP   10.103.211.169   <none>           9000/TCP                     5h13m
+
+NAME                         DATA   AGE
+configmap/kube-root-ca.crt   1      24d
+configmap/nginx-conf         1      5h9m
+```
+* 浏览器访问测试
+![access](pictures/wp-access-test05.png)
+  * https可以正常访问
+  * 浏览器刷新多次页面正常
+* 查看证书信息
+![ssl](pictures/wordpress-ssl-info-06.png)
+  * 浏览器查看证书为自签证书
+  * 自签证书和签发提供的参数一致
