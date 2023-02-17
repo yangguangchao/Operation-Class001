@@ -1094,7 +1094,7 @@ root@k8s-master1:~/ssl# openssl req \
 ## 创建secret
 root@k8s-master1:~/ssl# k create secret tls wordpress-ssl --key file.key --cert file.crt
 secret/wordpress-ssl created
-## 修改ninx configmap资源编排文件
+## 修改nginx configmap资源编排文件
 root@k8s-master1:~/learning-k8s/wordpress# cd nginx/
 root@k8s-master1:~/learning-k8s/wordpress/nginx# vi 01-configmap-nginx-conf.yaml
 apiVersion: v1
@@ -1150,7 +1150,7 @@ kind: ConfigMap
 metadata:
   creationTimestamp: null
   name: nginx-conf
-## 修改ninx service资源编排文件
+## 修改nginx service资源编排文件
 root@k8s-master1:~/learning-k8s/wordpress/nginx# vi 02-service-nginx.yaml
 apiVersion: v1
 kind: Service
@@ -1173,7 +1173,7 @@ spec:
   type: NodePort
   externalIPs:
   - 192.168.50.100
-## 修改ninx deployment资源编排文件
+## 修改nginx deployment资源编排文件
 root@k8s-master1:~/learning-k8s/wordpress/nginx# vi 03-deployment-nginx.yaml
 apiVersion: apps/v1
 kind: Deployment
