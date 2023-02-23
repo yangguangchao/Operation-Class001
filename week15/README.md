@@ -301,8 +301,26 @@ Switched to context "magedu@kube-test".
 root@k8s-master1:~# kubectl get pod --kubeconfig=$HOME/.kube/kubeusers.conf
 Error from server (Forbidden): pods is forbidden: User "magedu" cannot list resource "pods" in API group "" in the namespace "default"
 ```
-# 2. 使用资源配置文件创建ServiceAccount，并附加一个imagePullSecrets；
+# 2. 使用资源配置文件创建ServiceAccount，并附加一个imagePullSecrets
+```bash
+k create serviceaccount mysa -n test
+k create secret docker-registry mydcokrhub --docker-username=yang5188 --docker-password=ygc19910723@ -n test
+
+```
 # 3. 为tom用户授予管理blog名称空间的权限；为jerry授予管理整个集群的权限；为mason用户授予读取集群资源的权限；
+```bash
+使用rclusterrolebinding
+kubectl create clusterrole manager-blog-ns --verb=get,list,create,wathch,patch,update,delete,deletecollection --resource=namespaces --resource-name=blog
+kubectl create clusterrolebinding tom-as-manage-blog-ns --clusterrole=manager-blog-ns --user=tom
+
+使用rolebinding
+kubectl create clusterrole manager-blog-ns --verb=get,list,create,wathch,patch,update,delete,deletecollection --resource=namespaces
+kubectl create rolebinding tom-as-manager-blog-ns --clusterrole=manager-blog-ns --user=tom -n blog
+
+
+kubectl create clusterrolebinding jerry--as-cluster-admin --clusterrole=cluster-admin --user=jerry
+kubectl create clusterrolebinding mason--as-view --clusterrole=view --user=mason
+```
 # 4. 部署Jenkins、Prometheus-Server、Node-Exporter至Kubernetes集群；而后使用Ingress开放至集群外部，Jenkins要使用https协议开放；
 # 5. helm部署服务
 ## 5.1 使用helm部署主从复制的MySQL集群，部署wordpress，并使用ingress暴露到集群外部
