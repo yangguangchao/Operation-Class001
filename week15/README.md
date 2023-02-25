@@ -122,7 +122,7 @@ spec:
     - mountPath: /usr/share/ca-certificates
       name: usr-share-ca-certificates
       readOnly: true
-#挂载token认证的卷
+# 挂载token认证的卷
     - mountPath: /etc/kubernetes/authfiles
       name: authfiles
       readOnly: true
@@ -439,26 +439,38 @@ pod/nginx-748c667d99-7t4r7   1/1     Running   0          3m14s
 
 NAME            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
 service/nginx   ClusterIP   10.98.56.126   <none>        80/TCP    84s
-## 创建clusterrole，允许管理blog命名空间
-root@k8s-master1:~# kubectl create clusterrole manager-blog-ns --verb=get,list,create,watch,patch,update,delete,deletecollection --resource=namespaces --resource-name=blog
-clusterrole.rbac.authorization.k8s.io/manager-blog-ns created
+## 创建role，允许管理blog命名空间下的所有资源
+root@k8s-master1:~#  kubectl create role manager-blog-ns --verb=* --resource=pods,deployments,daemonsets,replicasets,statefulsets,jobs,cronjobs,ingresses,events,configmaps,endpoints,services -n blog
+role.rbac.authorization.k8s.io/manager-blog-ns created
 ## 为tom用户授权
-root@k8s-master1:~# kubectl create clusterrolebinding tom-as-manage-blog-ns --clusterrole=manager-blog-ns --user=tom
-clusterrolebinding.rbac.authorization.k8s.io/tom-as-manage-blog-ns created
+root@k8s-master1:~# kubectl create rolebinding tom-as-manage-blog-ns --role=manager-blog-ns --user=tom -n blog
+rolebinding.rbac.authorization.k8s.io/tom-as-manage-blog-ns created
 ##切换为用户tom的Current-Context并验证
 root@k8s-master1:~# kubectl config use-context tom@kube-test --kubeconfig=$HOME/.kube/kubeusers.conf
 Switched to context "tom@kube-test".
-##查看blog namaspace 
-root@k8s-master1:~# k get namespace blog --kubeconfig=$HOME/.kube/kubeusers.conf
-NAME   STATUS   AGE
-blog   Active   14m
-## 查看所有namespace创建的资源，提示没权限
-root@k8s-master1:~# k get pod,svc -n blog --kubeconfig=$HOME/.kube/kubeusers.conf
-Error from server (Forbidden): pods is forbidden: User "tom" cannot list resource "pods" in API group "" in the namespace "blog"
-Error from server (Forbidden): services is forbidden: User "tom" cannot list resource "services" in API group "" in the namespace "blog"
-## 删除blog namespace,可以正常删除
-root@k8s-master1:~# k delete namespace blog --kubeconfig=$HOME/.kube/kubeusers.conf
-namespace "blog" deleted
+##查看blog namaspace的资源
+root@k8s-master1:~# kubectl get pods -n blog --kubeconfig=$HOME/.kube/kubeusers.conf
+NAME                     READY   STATUS    RESTARTS   AGE
+nginx-748c667d99-8fw6q   1/1     Running   0          57m
+root@k8s-master1:~# kubectl get pods,svc -n blog --kubeconfig=$HOME/.kube/kubeusers.conf
+NAME                         READY   STATUS    RESTARTS   AGE
+pod/nginx-748c667d99-8fw6q   1/1     Running   0          58m
+
+NAME            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+service/nginx   ClusterIP   10.101.24.24   <none>        80/TCP    57m
+## 查看default kube-system namespace下的资源，提示没权限
+root@k8s-master1:~# kubectl get pods,svc --kubeconfig=$HOME/.kube/kubeusers.conf
+Error from server (Forbidden): pods is forbidden: User "tom" cannot list resource "pods" in API group "" in the namespace "default"
+Error from server (Forbidden): services is forbidden: User "tom" cannot list resource "services" in API group "" in the namespace "default"
+root@k8s-master1:~# kubectl get pods,svc -n kube-system --kubeconfig=$HOME/.kube/kubeusers.conf
+Error from server (Forbidden): pods is forbidden: User "tom" cannot list resource "pods" in API group "" in the namespace "kube-system"
+Error from server (Forbidden): services is forbidden: User "tom" cannot list resource "services" in API group "" in the namespace "kube-system"
+## 删除blog namespace下的资源,可以正常删除
+root@k8s-master1:~# k create service clusterip nginx --tcp=80:80 -n blog
+service/nginx created
+root@k8s-master1:~# kubectl delete deploy,svc nginx -n blog --kubeconfig=$HOME/.kube/kubeusers.conf
+deployment.apps "nginx" deleted
+service "nginx" deleted
 ```
 ## 3.2 为jerry授予管理整个集群的权限
 ```bash
@@ -669,7 +681,6 @@ service/prometheus-node-exporter created
 ```
 * 查看prometheus
 ![targets](pictures/show-prometheus-targets-01.png)
-## 4.2 使用Ingress开放至集群外部，Jenkins要使用https协议开放；
 ### 4.2.1 部署ingress
 ```bash
 ## 下载ingress资源编排文件
@@ -712,6 +723,545 @@ root@k8s-master1:~# k edit svc ingress-nginx-controller -n ingress-nginx
 ```
 * 测试访问
 ![access](pictures/access-nginx-01.png)
+
+## 4.2 使用Ingress开放至集群外部，Jenkins要使用https协议开放
+### 4.2.1 prometheus配置ingress
+```bash
+root@k8s-master1:~# cd k8s-prom/
+## 部署prometheus ingress
+root@k8s-master1:~/k8s-prom# k apply -f prometheus-ingress
+ingress.networking.k8s.io/prometheus created
+## 查看部署的资源
+root@k8s-master1:~/k8s-prom# k get ingress -n prom 
+NAME         CLASS   HOSTS                                   ADDRESS   PORTS   AGE
+prometheus   nginx   prom.magedu.com,prometheus.magedu.com             80      13s
+## 主机hosts绑定prom.magedu.com
+192.168.50.100 prom.magedu.com
+```
+* 使用域名访问prometheus
+![domain](pictures/prometheus-domain-access-01.png)
+### 4.2.2 jenkins配置nginx，支持http访问
+```bash
+## 切换到证书生成目录
+root@k8s-master1:~/ssl# cd ssl
+## 生成jenkins证书
+root@k8s-master1:~/ssl# openssl req \
+-newkey rsa:2048 \
+-x509 \
+-nodes \
+-keyout jenkins.key \
+-new \
+-out jenkins.crt \
+-subj /CN=magedu.com \
+-reqexts SAN \
+-extensions SAN \
+-config <(cat /etc/ssl/openssl.cnf \
+    <(printf '[SAN]\nsubjectAltName=DNS:magedu.com,DNS:*.magedu.com')) \
+-sha256 \
+-days 3650
+## 创建jenkins secret
+root@k8s-master1:~/ssl# k create secret tls jenkins-ssl --key jenkins.key --cert jenkins.crt -n jenkins
+secret/jenkins-ssl created
+## 切换到jenkins部署目录
+root@k8s-master1:~/ssl# cd ../learning-k8s/jenkins/deploy/
+root@k8s-master1:~/learning-k8s/jenkins/deploy# vi 07-ingress-jenkins.yaml 
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jenkins
+  namespace: jenkins
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: cicd.magedu.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: jenkins
+            port: 
+              number: 8080 
+        path: /
+        pathType: Prefix
+  - host: jenkins.magedu.com
+    http:
+      paths:
+      - backend:
+          service:
+            name: jenkins
+            port: 
+              number: 8080 
+        path: /
+        pathType: Prefix
+
+  tls:
+  - hosts:
+    - cicd.magedu.com
+    - jenkins.magedu.com
+    secretName: jenkins-ssl
+root@k8s-master1:~/learning-k8s/jenkins/deploy# k apply -f 07-ingress-jenkins.yaml 
+ingress.networking.k8s.io/jenkins created
+## 查看创建的jenkins ingress
+root@k8s-master1:~/learning-k8s/jenkins/deploy# k get ingress -n jenkins 
+NAME      CLASS   HOSTS                                ADDRESS          PORTS     AGE
+jenkins   nginx   cicd.magedu.com,jenkins.magedu.com   192.168.50.100   80, 443   60
+## 绑定主机hosts
+192.168.50.100 cicd.magedu.com jenkins.magedu.com
+```
+* 使用https访问jenkins
+![https](pictures/jenkins-https-access-01.png)
+* 查看https的证书为自签发的证书
+![cert](pictures/show-jenkins-https-cert-01.png)
 # 5. helm部署服务
 ## 5.1 使用helm部署主从复制的MySQL集群，部署wordpress，并使用ingress暴露到集群外部
-## 5.2 使用helm部署harbor，成功验证推送Image至Harbor上；使用helm部署一个redis cluster至Kubernetes上；
+```bash
+## helm 添加repo
+root@k8s-master1:~# helm repo add bitnami https://charts.bitnami.com/bitnami
+"bitnami" has been added to your repositories
+## 安装主从节点的mysql集群
+root@k8s-master1:~# helm install mysql  \
+    --set auth.rootPassword=MageEdu \
+    --set global.storageClass=nfs-csi \
+    --set architecture=replication \
+    --set auth.database=wpdb \
+    --set auth.username=wpuser \
+    --set auth.password='magedu.com' \
+    --set secondary.replicaCount=1 \
+    --set auth.replicationPassword='replpass' \
+    bitnami/mysql \
+    -n blog
+NAME: mysql
+LAST DEPLOYED: Sat Feb 25 18:16:42 2023
+NAMESPACE: blog
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+CHART NAME: mysql
+CHART VERSION: 9.5.0
+APP VERSION: 8.0.32
+
+** Please be patient while the chart is being deployed **
+
+Tip:
+
+  Watch the deployment status using the command: kubectl get pods -w --namespace blog
+
+Services:
+
+  echo Primary: mysql-primary.blog.svc.cluster.local:3306
+  echo Secondary: mysql-secondary.blog.svc.cluster.local:3306
+
+Execute the following to get the administrator credentials:
+
+  echo Username: root
+  MYSQL_ROOT_PASSWORD=$(kubectl get secret --namespace blog mysql -o jsonpath="{.data.mysql-root-password}" | base64 -d)
+
+To connect to your database:
+
+  1. Run a pod that you can use as a client:
+
+      kubectl run mysql-client --rm --tty -i --restart='Never' --image  docker.io/bitnami/mysql:8.0.32-debian-11-r8 --namespace blog --env MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD --command -- bash
+
+  2. To connect to primary service (read/write):
+
+      mysql -h mysql-primary.blog.svc.cluster.local -uroot -p"$MYSQL_ROOT_PASSWORD"
+
+  3. To connect to secondary service (read-only):
+
+      mysql -h mysql-secondary.blog.svc.cluster.local -uroot -p"$MYSQL_ROOT_PASSWORD"
+      
+## 查看创建的资源
+root@k8s-master1:~# k get pod,svc,pvc -n blog
+NAME                    READY   STATUS    RESTARTS   AGE
+pod/mysql-primary-0     1/1     Running   0          8m12s
+pod/mysql-secondary-0   1/1     Running   0          8m12s
+
+NAME                               TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
+service/mysql-primary              ClusterIP   10.102.58.194    <none>        3306/TCP   8m12s
+service/mysql-primary-headless     ClusterIP   None             <none>        3306/TCP   8m12s
+service/mysql-secondary            ClusterIP   10.105.129.113   <none>        3306/TCP   8m12s
+service/mysql-secondary-headless   ClusterIP   None             <none>        3306/TCP   8m12s
+
+NAME                                           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/data-mysql-primary-0     Bound    pvc-9ea9f08c-f845-444b-8798-31c81dd8feb3   8Gi        RWO            nfs-csi        8m12s
+persistentvolumeclaim/data-mysql-secondary-0   Bound    pvc-f2e37a5a-5d31-4b68-815f-597609db8786   8Gi        RWO            nfs-csi        8m12s
+
+## 获取mysql root密码
+root@k8s-master1:~# MYSQL_ROOT_PASSWORD=$(kubectl get secret --namespace blog mysql -o jsonpath="{.data.mysql-root-password}" | base64 -d)
+## 启动一个mysql的客户端
+root@k8s-master1:~# kubectl run mysql-client --rm --tty -i --restart='Never' --image  docker.io/bitnami/mysql:8.0.32-debian-11-r8 --namespace blog --env MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD --command -- bash
+If you don't see a command prompt, try pressing enter.
+## 连接主实例，创建一个test 数据库
+I have no name!@mysql-client:/$ mysql -h mysql-primary.blog.svc.cluster.local -uroot -p"$MYSQL_ROOT_PASSWORD"
+mysql: [Warning] Using a password on the command line interface can be insecure.
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 26
+Server version: 8.0.32 Source distribution
+
+Copyright (c) 2000, 2023, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| performance_schema |
+| sys                |
+| wpdb               |
++--------------------+
+5 rows in set (0.01 sec)
+
+mysql> create database test;
+Query OK, 1 row affected (0.01 sec)
+
+mysql> exit
+Bye
+## 连接从库，查看数据库，主库创建的库已同步
+I have no name!@mysql-client:/$ mysql -h mysql-secondary.blog.svc.cluster.local -uroot -p"$MYSQL_ROOT_PASSWORD"
+mysql: [Warning] Using a password on the command line interface can be insecure.
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 36
+Server version: 8.0.32 Source distribution
+
+Copyright (c) 2000, 2023, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> show database;
+ERROR 1064 (42000): You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'database' at line 1
+mysql>
+mysql> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| performance_schema |
+| sys                |
+| test               |
+| wpdb               |
++--------------------+
+6 rows in set (0.00 sec)
+
+## 部署wordpress
+root@k8s-master1:~# helm install wordpress \
+    --set mariadb.enabled=false \
+    --set externalDatabase.host=mysql-primary.blog.svc.cluster.local \
+    --set externalDatabase.user=wpuser \
+    --set externalDatabase.password='magedu.com' \
+    --set externalDatabase.database=wpdb \
+    --set externalDatabase.port=3306 \
+    --set persistence.storageClass=nfs-csi \
+    --set ingress.enabled=true \
+    --set ingress.ingressClassName=nginx \
+    --set ingress.hostname=blog.ygc.cn \
+    --set ingress.pathType=Prefix \
+    --set wordpressUsername=admin \
+    --set wordpressPassword='magedu.com' \
+    bitnami/wordpress \
+    -n blog
+NAME: wordpress
+LAST DEPLOYED: Sat Feb 25 18:29:58 2023
+NAMESPACE: blog
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+CHART NAME: wordpress
+CHART VERSION: 15.2.46
+APP VERSION: 6.1.1
+
+** Please be patient while the chart is being deployed **
+
+Your WordPress site can be accessed through the following DNS name from within your cluster:
+
+    wordpress.blog.svc.cluster.local (port 80)
+
+To access your WordPress site from outside the cluster follow the steps below:
+
+1. Get the WordPress URL and associate WordPress hostname to your cluster external IP:
+
+   export CLUSTER_IP=$(minikube ip) # On Minikube. Use: `kubectl cluster-info` on others K8s clusters
+   echo "WordPress URL: http://blog.ygc.cn/"
+   echo "$CLUSTER_IP  blog.ygc.cn" | sudo tee -a /etc/hosts
+
+2. Open a browser and access WordPress using the obtained URL.
+
+3. Login with the following credentials below to see your blog:
+
+  echo Username: admin
+  echo Password: $(kubectl get secret --namespace blog wordpress -o jsonpath="{.data.wordpress-password}" | base64 -d)
+## 查看部署的资源
+root@k8s-master1:~# k get pod,svc,pvc,ingress -n blog
+
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/mysql-primary-0              1/1     Running   0          16m
+pod/mysql-secondary-0            1/1     Running   0          16m
+pod/wordpress-595ffc667b-lkqpn   1/1     Running   0          3m9s
+
+NAME                               TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
+service/mysql-primary              ClusterIP      10.102.58.194    <none>        3306/TCP                     16m
+service/mysql-primary-headless     ClusterIP      None             <none>        3306/TCP                     16m
+service/mysql-secondary            ClusterIP      10.105.129.113   <none>        3306/TCP                     16m
+service/mysql-secondary-headless   ClusterIP      None             <none>        3306/TCP                     16m
+service/wordpress                  LoadBalancer   10.96.154.248    <pending>     80:30357/TCP,443:30388/TCP   3m9s
+
+NAME                                           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/data-mysql-primary-0     Bound    pvc-9ea9f08c-f845-444b-8798-31c81dd8feb3   8Gi        RWO            nfs-csi        16m
+persistentvolumeclaim/data-mysql-secondary-0   Bound    pvc-f2e37a5a-5d31-4b68-815f-597609db8786   8Gi        RWO            nfs-csi        16m
+persistentvolumeclaim/wordpress                Bound    pvc-cf5af257-81bb-4667-8eaa-8ae57ebb23d4   10Gi       RWO            nfs-csi        3m9s
+
+NAME                                  CLASS   HOSTS         ADDRESS          PORTS   AGE
+ingress.networking.k8s.io/wordpress   nginx   blog.ygc.cn   192.168.50.100   80      3m9s
+## 由于集群没有loadbalancer资源，修改service类型为ClusterIP
+root@k8s-master1:~# k -n blog edit svc wordpress
+spec:
+  allocateLoadBalancerNodePorts: true
+  clusterIP: 10.96.154.248
+  clusterIPs:
+  - 10.96.154.248
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: http
+    nodePort: 30357
+    port: 80
+    protocol: TCP
+    targetPort: http
+  - name: https
+    nodePort: 30388
+    port: 443
+    protocol: TCP
+    targetPort: https
+  selector:
+    app.kubernetes.io/instance: wordpress
+    app.kubernetes.io/name: wordpress
+  sessionAffinity: None
+  type: ClusterIP
+## 查看serrvice资源，已恢复正常
+root@k8s-master1:~# k get svc -n blog
+NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+mysql-primary              ClusterIP   10.102.58.194    <none>        3306/TCP         20m
+mysql-primary-headless     ClusterIP   None             <none>        3306/TCP         20m
+mysql-secondary            ClusterIP   10.105.129.113   <none>        3306/TCP         20m
+mysql-secondary-headless   ClusterIP   None             <none>        3306/TCP         20m
+wordpress                  ClusterIP   10.96.154.248    <none>        80/TCP,443/TCP   6m45s
+## 绑定hosts
+192.168.50.100 blog.ygc.cn
+```
+* 访问测试
+![test](pictures/helm-wordpress-access-01.png)
+
+## 5.2 使用helm部署harbor，成功验证推送Image至Harbor上
+```bash
+## 添加repo
+root@k8s-master1:~/learning-k8s/helm# helm repo add harbor https://helm.goharbor.io
+"harbor" has been added to your repositories
+## 切换到安装目录
+root@k8s-master1:~# cd learning-k8s/helm/harbor/
+## 安装harbor
+root@k8s-master1:~/learning-k8s/helm/harbor# helm install harbor -f harbor-values.yaml harbor/harbor -n harbor --create-namespace
+NAME: harbor
+LAST DEPLOYED: Sat Feb 25 18:46:54 2023
+NAMESPACE: harbor
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+Please wait for several minutes for Harbor deployment to complete.
+Then you should be able to visit the Harbor portal at https://hub.magedu.com
+For more details, please visit https://github.com/goharbor/harbor
+## 查看创建的资源
+root@k8s-master1:~/learning-k8s/helm/harbor# k get pod,svc,ingress,pvc -n harbor
+NAME                                        READY   STATUS    RESTARTS      AGE
+pod/harbor-chartmuseum-b6cf788b6-zv6qh      1/1     Running   0             3m39s
+pod/harbor-core-cdb9b7c9-kq4vw              1/1     Running   1 (93s ago)   3m39s
+pod/harbor-database-0                       1/1     Running   0             3m39s
+pod/harbor-jobservice-6585d57fb9-hkcbk      1/1     Running   3 (57s ago)   3m40s
+pod/harbor-notary-server-f9497b69-hwxgn     1/1     Running   3 (85s ago)   3m39s
+pod/harbor-notary-signer-7fbb7bd4df-zn94s   1/1     Running   3 (84s ago)   3m39s
+pod/harbor-portal-687956689b-g7hqb          1/1     Running   0             3m39s
+pod/harbor-redis-0                          1/1     Running   0             3m39s
+pod/harbor-registry-58596d8668-64vrx        2/2     Running   0             3m39s
+pod/harbor-trivy-0                          1/1     Running   0             3m39s
+
+NAME                           TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)             AGE
+service/harbor-chartmuseum     ClusterIP   10.107.227.63    <none>        80/TCP              3m40s
+service/harbor-core            ClusterIP   10.108.181.79    <none>        80/TCP              3m40s
+service/harbor-database        ClusterIP   10.108.90.75     <none>        5432/TCP            3m40s
+service/harbor-jobservice      ClusterIP   10.110.16.202    <none>        80/TCP              3m40s
+service/harbor-notary-server   ClusterIP   10.101.124.219   <none>        4443/TCP            3m40s
+service/harbor-notary-signer   ClusterIP   10.102.129.80    <none>        7899/TCP            3m40s
+service/harbor-portal          ClusterIP   10.99.215.47     <none>        80/TCP              3m40s
+service/harbor-redis           ClusterIP   10.98.22.158     <none>        6379/TCP            3m40s
+service/harbor-registry        ClusterIP   10.104.9.36      <none>        5000/TCP,8080/TCP   3m40s
+service/harbor-trivy           ClusterIP   10.104.185.77    <none>        8080/TCP            3m40s
+
+NAME                                              CLASS    HOSTS               ADDRESS          PORTS     AGE
+ingress.networking.k8s.io/harbor-ingress          <none>   hub.magedu.com      192.168.50.100   80, 443   3m39s
+ingress.networking.k8s.io/harbor-ingress-notary   <none>   notary.magedu.com   192.168.50.100   80, 443   3m39s
+
+NAME                                                    STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/data-harbor-redis-0               Bound    pvc-8e17cf1d-d0ce-4c96-87c9-0c1cae9f1d03   2Gi        RWX            nfs-csi        3m39s
+persistentvolumeclaim/data-harbor-trivy-0               Bound    pvc-0845d85a-f07a-4d8a-b388-bf7b6df39f94   5Gi        RWX            nfs-csi        3m39s
+persistentvolumeclaim/database-data-harbor-database-0   Bound    pvc-8548e70c-cf2a-459a-aa37-837d6664f5f6   2Gi        RWX            nfs-csi        3m39s
+persistentvolumeclaim/harbor-chartmuseum                Bound    pvc-c9e8d76b-3e45-41bf-a797-82b844a8d10c   5Gi        RWX            nfs-csi        3m40s
+persistentvolumeclaim/harbor-jobservice                 Bound    pvc-b11908b4-4c34-4768-91f6-201a4d318ef7   1Gi        RWO            nfs-csi        3m40s
+persistentvolumeclaim/harbor-registry                   Bound    pvc-e96e966d-2f2e-4193-9e0d-46695221a338   5Gi        RWX            nfs-csi        3m40s
+
+## 绑定hosts
+192.168.50.100 hub.magedu.com
+```
+* 登录harbor
+![login](pictures/harbor-login-access-01.png)
+* 创建一个web项目
+![project](pictures/harbor-create-project-web-01.png)
+```bash
+## 在master2节点上绑定hosts
+root@k8s-master1:~# vi /etc/hosts
+192.168.50.100  hub.magedu.com
+## 添加harbor地址到insecure-registries
+root@k8s-master2:~# vi /etc/docker/daemon.json
+{
+  "graph": "/var/lib/docker",
+  "storage-driver": "overlay2",
+  "insecure-registries": ["harbor.magedu.com","harbor.myserver.com","172.31.7.105","hub.magedu.com"],
+  "registry-mirrors": ["https://9916w1ow.mirror.aliyuncs.com"],
+  "exec-opts": ["native.cgroupdriver=systemd"],
+  "live-restore": false,
+  "log-opts": {
+      "max-file": "5",
+      "max-size": "100m"
+  }
+}
+## 重启docker
+root@k8s-master2:~# systemctl restart docker
+## 登录docker
+root@k8s-master2:~# docker login https://hub.magedu.com -u admin -p magedu.com
+WARNING! Using --password via the CLI is insecure. Use --password-stdin.
+WARNING! Your password will be stored unencrypted in /root/.docker/config.json.
+Configure a credential helper to remove this warning. See
+https://docs.docker.com/engine/reference/commandline/login/#credentials-store
+
+Login Succeeded
+## 拉取一个nginx镜像
+root@k8s-master2:~# docker pull nginx:latest
+latest: Pulling from library/nginx
+a2abf6c4d29d: Pull complete
+a9edb18cadd1: Pull complete
+589b7251471a: Pull complete
+186b1aaa4aa6: Pull complete
+b4df32aa5a72: Pull complete
+a0bcbecc962e: Pull complete
+Digest: sha256:0d17b565c37bcbd895e9d92315a05c1c3c9a29f762b011a10c54a66cd53c9b31
+Status: Downloaded newer image for nginx:latest
+docker.io/library/nginx:latest
+## 标记本地镜像，将其归入自建的harbor
+root@k8s-master2:~# docker tag nginx:latest hub.magedu.com/web/nginx:latest
+## 推送镜像到harbor
+root@k8s-master2:~# docker push hub.magedu.com/web/nginx:latest
+The push refers to repository [hub.magedu.com/web/nginx]
+d874fd2bc83b: Pushed
+32ce5f6a5106: Pushed
+f1db227348d0: Pushed
+b8d6e692a25e: Pushed
+e379e8aedd4d: Pushed
+2edcec3590a4: Pushed
+latest: digest: sha256:ee89b00528ff4f02f2405e4ee221743ebc3f8e8dd0bfd5c4c20a2fa2aaa7ede3 size: 1570
+```
+* harbor查看推送的镜像
+![image](pictures/harbor-show-image-01.png)
+## 5.3 使用helm部署一个redis cluster至Kubernetes上
+* 编辑部署配置文件[redis-cluster-values.yaml](redis-cluster-values.yaml)
+```bash
+## 查看repo
+root@k8s-master1:~# helm repo list
+NAME          	URL
+stable        	https://kubernetes.oss-cn-hangzhou.aliyuncs.com/charts/
+mysql-operator	https://mysql.github.io/mysql-operator/
+bitnami       	https://charts.bitnami.com/bitnami
+harbor        	https://helm.goharbor.io
+## 搜索redis
+root@k8s-master1:~# helm search repo redis
+NAME                 	CHART VERSION	APP VERSION	DESCRIPTION
+bitnami/redis        	17.8.0       	7.0.8      	Redis(R) is an open source, advanced key-value ...
+bitnami/redis-cluster	8.3.8        	7.0.8      	Redis(R) is an open source, scalable, distribut...
+stable/redis         	1.1.15       	4.0.8      	Open source, advanced key-value store. It is of...
+stable/redis-ha      	2.0.1        	           	Highly available Redis cluster with multiple se...
+stable/sensu         	0.2.0        	           	Sensu monitoring framework backed by the Redis ...
+## 安装redis
+root@k8s-master1:~# helm install redis-cluster -f redis-cluster-values.yaml bitnami/redis-cluster -n redis --create-namespace
+NAME: redis-cluster
+LAST DEPLOYED: Sat Feb 25 19:29:36 2023
+NAMESPACE: redis
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+CHART NAME: redis-cluster
+CHART VERSION: 8.3.8
+APP VERSION: 7.0.8** Please be patient while the chart is being deployed **
+
+
+To get your password run:
+    export REDIS_PASSWORD=$(kubectl get secret --namespace "redis" redis-cluster -o jsonpath="{.data.redis-password}" | base64 -d)
+
+You have deployed a Redis&reg; Cluster accessible only from within you Kubernetes Cluster.INFO: The Job to create the cluster will be created.To connect to your Redis&reg; cluster:
+
+1. Run a Redis&reg; pod that you can use as a client:
+kubectl run --namespace redis redis-cluster-client --rm --tty -i --restart='Never' \
+ --env REDIS_PASSWORD=$REDIS_PASSWORD \
+--image docker.io/bitnami/redis-cluster:7.0.8-debian-11-r14 -- bash
+
+2. Connect using the Redis&reg; CLI:
+
+redis-cli -c -h redis-cluster -a $REDIS_PASSWORD
+## 查看创建的资源
+root@k8s-master1:~# k get pod,svc,pvc -n redis
+NAME                  READY   STATUS    RESTARTS        AGE
+pod/redis-cluster-0   1/1     Running   0               4m55s
+pod/redis-cluster-1   1/1     Running   1 (3m39s ago)   4m55s
+pod/redis-cluster-2   1/1     Running   2 (3m35s ago)   4m55s
+pod/redis-cluster-3   1/1     Running   1 (2m57s ago)   4m55s
+pod/redis-cluster-4   1/1     Running   1 (3m37s ago)   4m55s
+pod/redis-cluster-5   1/1     Running   1 (2m57s ago)   4m55s
+
+NAME                             TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)              AGE
+service/redis-cluster            ClusterIP   10.110.20.206   <none>        6379/TCP             4m56s
+service/redis-cluster-headless   ClusterIP   None            <none>        6379/TCP,16379/TCP   4m56s
+
+NAME                                               STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+persistentvolumeclaim/redis-data-redis-cluster-0   Bound    pvc-d57270dd-8bd2-4557-9206-5a748ba62702   8Gi        RWO            nfs-csi        4m55s
+persistentvolumeclaim/redis-data-redis-cluster-1   Bound    pvc-1cdc6c0e-fc54-41ce-a878-3b4411697fec   8Gi        RWO            nfs-csi        4m55s
+persistentvolumeclaim/redis-data-redis-cluster-2   Bound    pvc-0287c602-caf4-4323-a6bb-b21754ae4d35   8Gi        RWO            nfs-csi        4m55s
+persistentvolumeclaim/redis-data-redis-cluster-3   Bound    pvc-8608d066-4217-4700-9106-13dac24ddf8b   8Gi        RWO            nfs-csi        4m55s
+persistentvolumeclaim/redis-data-redis-cluster-4   Bound    pvc-15f92615-092a-42de-b290-c9741764f358   8Gi        RWO            nfs-csi        4m55s
+persistentvolumeclaim/redis-data-redis-cluster-5   Bound    pvc-e040c035-70e3-465c-89fd-807f7d24d10a   8Gi        RWO            nfs-csi        4m55s
+## 登录进行验证
+root@k8s-master1:~# export REDIS_PASSWORD=$(kubectl get secret --namespace "redis" redis-cluster -o jsonpath="{.data.redis-password}" | base64 -d)
+root@k8s-master1:~# kubectl run --namespace redis redis-cluster-client --rm --tty -i --restart='Never' \
+ --env REDIS_PASSWORD=$REDIS_PASSWORD \
+--image docker.io/bitnami/redis-cluster:7.0.8-debian-11-r14 -- bash
+If you don't see a command prompt, try pressing enter.
+I have no name!@redis-cluster-client:/$ redis-cli -c -h redis-cluster -a $REDIS_PASSWORD
+Warning: Using a password with '-a' or '-u' option on the command line interface may not be safe.
+redis-cluster:6379> set ygc 123
+OK
+redis-cluster:6379> get ygc
+"123"
+```
