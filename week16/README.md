@@ -217,11 +217,13 @@ root@k8s-master1:~# vim /etc/systemd/system/cri-docker.socket
 [Unit]
 Description=CRI Docker Socket for the API
 PartOf=cri-docker.service
+
 [Socket]
 ListenStream=%t/cri-dockerd.sock
 SocketMode=0660
 SocketUser=root
 SocketGroup=docker
+
 [Install]
 WantedBy=sockets.target
 ## 启动服务
