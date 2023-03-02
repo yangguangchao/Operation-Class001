@@ -252,8 +252,307 @@ Mar 01 16:16:29 k8s-master1 cri-dockerd[50596]: time="2023-03-01T16:16:29Z" leve
 Mar 01 16:16:29 k8s-master1 cri-dockerd[50596]: time="2023-03-01T16:16:29Z" level=info msg="Starting the GRPC backend for the Docker CRI interfa>
 Mar 01 16:16:29 k8s-master1 cri-dockerd[50596]: time="2023-03-01T16:16:29Z" level=info msg="Start cri-dockerd grpc backend"
 Mar 01 16:16:29 k8s-master1 systemd[1]: Started CRI Interface for Docker Application Container Engine.
-
 ```
+## 2.3 安装kubeadm
+```bash
+## 使用阿里云源
+root@k8s-master1:~# apt-get update && apt-get install -y apt-transport-https
+root@k8s-master1:~# curl https://mirrors.aliyun.com/kubernetes/apt/doc/apt-key.gpg | apt-key add -
+root@k8s-master1:~# cat <<EOF >/etc/apt/sources.list.d/kubernetes.list
+deb https://mirrors.aliyun.com/kubernetes/apt/ kubernetes-xenial main
+EOF
+## 检查更新
+root@k8s-master1:~# apt update
+## 查看可kubeadm安装的版本
+root@k8s-master1:~# apt-cache madison kubeadm
+## 安装kubeadm
+root@k8s-master1:~# apt-get install -y kubelet=1.24.10-00 kubeadm=1.24.10-00 kubectl=1.24.10-00
+## 验证版本
+root@k8s-master1:~# kubeadm version
+kubeadm version: &version.Info{Major:"1", Minor:"24", GitVersion:"v1.24.10", GitCommit:"5c1d2d4295f9b4eb12bfbf6429fdf989f2ca8a02", GitTreeState:"clean", BuildDate:"2023-01-18T19:13:52Z", GoVersion:"go1.19.5", Compiler:"gc", Platform:"linux/amd64"}
+```
+## 2.4 初始化集群-镜像准备
+```bash
+## 查看需要下载的镜像
+root@k8s-master1:~# kubeadm config images list --kubernetes-version v1.24.10
+registry.k8s.io/kube-apiserver:v1.24.10
+registry.k8s.io/kube-controller-manager:v1.24.10
+registry.k8s.io/kube-scheduler:v1.24.10
+registry.k8s.io/kube-proxy:v1.24.10
+registry.k8s.io/pause:3.7
+registry.k8s.io/etcd:3.5.6-0
+registry.k8s.io/coredns/coredns:v1.8.6
+## 用脚本提前下载好镜像
+root@k8s-master1:~# vim images-download.sh
+#!/bin/bash
+docker pull registry.cn-hangzhou.aliyuncs.com/google_containers/kube-apiserver:v1.24.10
+docker pull registry.cn-hangzhou.aliyuncs.com/google_containers/kube-controller-manager:v1.24.10
+docker pull registry.cn-hangzhou.aliyuncs.com/google_containers/kube-scheduler:v1.24.10
+docker pull registry.cn-hangzhou.aliyuncs.com/google_containers/kube-proxy:v1.24.10
+docker pull registry.cn-hangzhou.aliyuncs.com/google_containers/pause:3.7
+docker pull registry.cn-hangzhou.aliyuncs.com/google_containers/etcd:3.5.6-0
+docker pull registry.cn-hangzhou.aliyuncs.com/google_containers/coredns:1.8.6
+root@k8s-master1:~# bash images-download.sh
+## 初始化kubernetes
+root@k8s-master1:~#kubeadm init --apiserver-advertise-address=172.31.7.101 \
+--apiserver-bind-port=6443 \
+--kubernetes-version=v1.24.10 \
+--pod-network-cidr=10.200.0.0/16 \
+--service-cidr=172.31.5.0/24 \
+--service-dns-domain=cluster.local \
+--image-repository=registry.cn-hangzhou.aliyuncs.com/google_containers \
+--ignore-preflight-errors=swap \
+--cri-socket unix:///var/run/cri-dockerd.sock
+Your Kubernetes control-plane has initialized successfully!
+
+To start using your cluster, you need to run the following as a regular user:
+
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+Alternatively, if you are the root user, you can run:
+
+  export KUBECONFIG=/etc/kubernetes/admin.conf
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+Then you can join any number of worker nodes by running the following on each as root:
+
+kubeadm join 172.31.7.101:6443 --token 4yotz6.z82cvf91f4epjeri \
+	--discovery-token-ca-cert-hash sha256:c8166b9f94e544a792715c13e619c80a2c6b284b585f3ca1cf6e380e3b756395
+
+## 添加node节点
+root@k8s-node1:~# kubeadm join 172.31.7.101:6443 --token 4yotz6.z82cvf91f4epjeri \
+        --discovery-token-ca-cert-hash sha256:c8166b9f94e544a792715c13e619c80a2c6b284b585f3ca1cf6e380e3b756395 \
+        --cri-socket unix:///var/run/cri-dockerd.sock
+root@k8s-node2:~# kubeadm join 172.31.7.101:6443 --token 4yotz6.z82cvf91f4epjeri \
+        --discovery-token-ca-cert-hash sha256:c8166b9f94e544a792715c13e619c80a2c6b284b585f3ca1cf6e380e3b756395 \
+        --cri-socket unix:///var/run/cri-dockerd.sock
+root@k8s-node3:~# kubeadm join 172.31.7.101:6443 --token 4yotz6.z82cvf91f4epjeri \
+        --discovery-token-ca-cert-hash sha256:c8166b9f94e544a792715c13e619c80a2c6b284b585f3ca1cf6e380e3b756395 \
+        --cri-socket unix:///var/run/cri-dockerd.sock
+## 配置master kubectl配置
+root@k8s-master1:~# mkdir -p $HOME/.kube
+root@k8s-master1:~# cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+root@k8s-master1:~# chown $(id -u):$(id -g) $HOME/.kube/config
+root@k8s-master1:~# kubectl get node
+NAME          STATUS     ROLES           AGE     VERSION
+k8s-master1   NotReady   control-plane   4m34s   v1.24.10
+k8s-node1     NotReady   <none>          96s     v1.24.10
+k8s-node2     NotReady   <none>          65s     v1.24.10
+k8s-node3     NotReady   <none>          57s     v1.24.10
+## 分发kubeconfig认证文件
+root@k8s-node1:~# mkdir -p $HOME/.kube
+root@k8s-node2:~# mkdir -p $HOME/.kube
+root@k8s-node3:~# mkdir -p $HOME/.kube
+root@k8s-master1:~# scp /root/.kube/config 172.31.7.102:/root/.kube/
+root@k8s-master1:~# scp /root/.kube/config 172.31.7.103:/root/.kube/
+root@k8s-master1:~# scp /root/.kube/config 172.31.7.104:/root/.kube/
+## node 节点执行kubectl命令验证
+root@k8s-node1:~# kubectl get node
+NAME          STATUS     ROLES           AGE     VERSION
+k8s-master1   NotReady   control-plane   8m40s   v1.24.10
+k8s-node1     NotReady   <none>          5m42s   v1.24.10
+k8s-node2     NotReady   <none>          5m11s   v1.24.10
+k8s-node3     NotReady   <none> 
+root@k8s-node2:~# kubectl get node
+NAME          STATUS     ROLES           AGE     VERSION
+k8s-master1   NotReady   control-plane   8m47s   v1.24.10
+k8s-node1     NotReady   <none>          5m49s   v1.24.10
+k8s-node2     NotReady   <none>          5m18s   v1.24.10
+k8s-node3     NotReady   <none>          5m10s   v1.24.10
+root@k8s-node3:~# kubectl get node
+NAME          STATUS     ROLES           AGE     VERSION
+k8s-master1   NotReady   control-plane   8m50s   v1.24.10
+k8s-node1     NotReady   <none>          5m52s   v1.24.10
+k8s-node2     NotReady   <none>          5m21s   v1.24.10
+k8s-node3     NotReady   <none>          5m13s   v1.24.10
+```
+## 2.5 安装helm
+```bash
+root@k8s-master1:~# cd /usr/local/src/
+## 下载二进制安装包
+root@k8s-master1:/usr/local/src# wget https://get.helm.sh/helm-v3.9.0-linux-amd64.tar.gz
+## 解压
+root@k8s-master1:/usr/local/src# tar xvf helm-v3.9.0-linux-amd64.tar.gz
+linux-amd64/
+linux-amd64/helm
+linux-amd64/LICENSE
+linux-amd64/README.md
+## 将二进制文件放到可执行目录
+root@k8s-master1:/usr/local/src# mv linux-amd64/helm /usr/local/bin/
+## 检查helm命令
+root@k8s-master1:/usr/local/src# helm --help
+```
+## 2.6 部署网络组件hybridnet
+```bash
+## 添加helm源
+root@k8s-master1:~# helm repo add hybridnet https://alibaba.github.io/hybridnet/
+"hybridnet" has been added to your repositories
+root@k8s-master1:~# helm repo update
+## 配置overlay pod网络(使用kubeadm初始化时指定的pod网络)，如果不指定--set init.cidr=10.200.0.0/16默认会使用100.64.0.0/16
+root@k8s-master1:~# helm install hybridnet hybridnet/hybridnet -n kube-system --set init.cidr=10.200.0.0/16
+W0302 15:36:36.475030   76486 warnings.go:70] spec.template.spec.nodeSelector[beta.kubernetes.io/os]: deprecated since v1.14; use "kubernetes.io/os" instead
+W0302 15:36:36.475055   76486 warnings.go:70] spec.template.metadata.annotations[scheduler.alpha.kubernetes.io/critical-pod]: non-functional in v1.16+; use the "priorityClassName" field instead
+NAME: hybridnet
+LAST DEPLOYED: Thu Mar  2 15:36:35 2023
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+## 查看pod状态
+root@k8s-master1:~# kubectl get pod -A
+NAMESPACE     NAME                                  READY   STATUS              RESTARTS   AGE
+kube-system   calico-typha-6f55876f98-759g8         0/1     ContainerCreating   0          26s
+kube-system   calico-typha-6f55876f98-g5xxw         0/1     ContainerCreating   0          26s
+kube-system   calico-typha-6f55876f98-p8mpv         0/1     ContainerCreating   0          26s
+kube-system   coredns-7f74c56694-tn96x              0/1     Pending             0          19m
+kube-system   coredns-7f74c56694-vh4j4              0/1     Pending             0          19m
+kube-system   etcd-k8s-master1                      1/1     Running             0          19m
+kube-system   hybridnet-daemon-842r7                0/2     Init:0/1            0          26s
+kube-system   hybridnet-daemon-89x9b                0/2     Init:0/1            0          26s
+kube-system   hybridnet-daemon-d4kmt                0/2     Init:0/1            0          26s
+kube-system   hybridnet-daemon-mtgpc                0/2     Init:0/1            0          26s
+kube-system   hybridnet-manager-6574dcc5fb-8mk8f    0/1     Pending             0          26s
+kube-system   hybridnet-manager-6574dcc5fb-qmwnv    0/1     Pending             0          26s
+kube-system   hybridnet-manager-6574dcc5fb-scckm    0/1     Pending             0          26s
+kube-system   hybridnet-webhook-76dc57b4bf-fr8dn    0/1     Pending             0          29s
+kube-system   hybridnet-webhook-76dc57b4bf-nj749    0/1     Pending             0          29s
+kube-system   hybridnet-webhook-76dc57b4bf-rvmld    0/1     Pending             0          29s
+kube-system   kube-apiserver-k8s-master1            1/1     Running             0          19m
+kube-system   kube-controller-manager-k8s-master1   1/1     Running             0          19m
+kube-system   kube-proxy-79t6w                      1/1     Running             0          16m
+kube-system   kube-proxy-h8bgh                      1/1     Running             0          16m
+kube-system   kube-proxy-jdphq                      1/1     Running             0          15m
+kube-system   kube-proxy-qtsw2                      1/1     Running             0          19m
+kube-system   kube-scheduler-k8s-master1            1/1     Running             0          19m
+## 查看pod事件
+# root@k8s-master1:~# kubectl describe pod hybridnet-manager-6574dcc5fb-8mk8f -n kube-system
+Events:
+  Type     Reason            Age   From               Message
+  ----     ------            ----  ----               -------
+  Warning  FailedScheduling  2m5s  default-scheduler  0/4 nodes are available: 4 node(s) didn't match Pod's node affinity/selector. preemption: 0/4 nodes are available: 4 Preemption is not helpful for scheduling.
+## 给节点打标签
+root@k8s-master1:~# kubectl label node k8s-node1 node-role.kubernetes.io/master=
+node/k8s-node1 labeled
+root@k8s-master1:~# kubectl label node k8s-node2 node-role.kubernetes.io/master=
+node/k8s-node2 labeled
+root@k8s-master1:~# kubectl label node k8s-node3 node-role.kubernetes.io/master=
+node/k8s-node3 labeled
+## 查看pod
+root@k8s-master1:~# kubectl get pod -A
+NAMESPACE     NAME                                  READY   STATUS    RESTARTS        AGE
+kube-system   calico-typha-6f55876f98-759g8         1/1     Running   0               9m30s
+kube-system   calico-typha-6f55876f98-g5xxw         1/1     Running   0               9m30s
+kube-system   calico-typha-6f55876f98-p8mpv         1/1     Running   0               9m30s
+kube-system   coredns-7f74c56694-tn96x              1/1     Running   0               28m
+kube-system   coredns-7f74c56694-vh4j4              1/1     Running   0               28m
+kube-system   etcd-k8s-master1                      1/1     Running   0               28m
+kube-system   hybridnet-daemon-842r7                2/2     Running   1 (6m55s ago)   9m30s
+kube-system   hybridnet-daemon-89x9b                2/2     Running   1 (6m42s ago)   9m30s
+kube-system   hybridnet-daemon-d4kmt                2/2     Running   1 (6m57s ago)   9m30s
+kube-system   hybridnet-daemon-mtgpc                2/2     Running   1 (2m18s ago)   9m30s
+kube-system   hybridnet-manager-6574dcc5fb-8mk8f    1/1     Running   0               9m30s
+kube-system   hybridnet-manager-6574dcc5fb-qmwnv    1/1     Running   0               9m30s
+kube-system   hybridnet-manager-6574dcc5fb-scckm    1/1     Running   0               9m30s
+kube-system   hybridnet-webhook-76dc57b4bf-fr8dn    1/1     Running   0               9m33s
+kube-system   hybridnet-webhook-76dc57b4bf-nj749    1/1     Running   0               9m33s
+kube-system   hybridnet-webhook-76dc57b4bf-rvmld    1/1     Running   0               9m33s
+kube-system   kube-apiserver-k8s-master1            1/1     Running   0               28m
+kube-system   kube-controller-manager-k8s-master1   1/1     Running   0               28m
+kube-system   kube-proxy-79t6w                      1/1     Running   0               25m
+kube-system   kube-proxy-h8bgh                      1/1     Running   0               25m
+kube-system   kube-proxy-jdphq                      1/1     Running   0               25m
+kube-system   kube-proxy-qtsw2                      1/1     Running   0               28m
+kube-system   kube-scheduler-k8s-master1            1/1     Running   0               28m
+```
+## 2.7 创建underlay网络并与node节点关联
+```bash
+## 为node主机添加underlay network标签
+root@k8s-master1:~# kubectl label node k8s-node1 network=underlay-nethost
+node/k8s-node1 labeled
+root@k8s-master1:~# kubectl label node k8s-node2 network=underlay-nethost
+node/k8s-node2 labeled
+root@k8s-master1:~# kubectl label node k8s-node3 network=underlay-nethost
+node/k8s-node3 labeled
+## 创建underlay网络
+root@k8s-master1:~# cd underlay-cases-files/
+root@k8s-master1:~/underlay-cases-files# kubectl apply -f 1.create-underlay-network.yaml 
+network.networking.alibaba.com/underlay-network1 created
+subnet.networking.alibaba.com/underlay-network1 created
+## 验证网络
+root@k8s-master1:~/underlay-cases-files# kubectl get network
+NAME                NETID   TYPE       MODE   V4TOTAL   V4USED   V4AVAILABLE   LASTALLOCATEDV4SUBNET   V6TOTAL   V6USED   V6AVAILABLE   LASTALLOCATEDV6SUBNET
+init                4       Overlay           65534     2        65532         init                    0         0        0             
+underlay-network1   0       Underlay          254       0        254           underlay-network1       0         0        0 
+```
+## 2.8 创建pod并使用overlay网络
+```bash
+## 创建namaspace
+root@k8s-master1:~/underlay-cases-files# kubectl create ns myserver
+namespace/myserver created
+## 修改case 中的配置
+root@k8s-master1:~/underlay-cases-files# vi 2.tomcat-app1-overlay.yaml
+    spec:
+      nodeName: k8s-node2
+## 创建测试pod和service
+root@k8s-master1:~/underlay-cases-files# kubectl apply -f 2.tomcat-app1-overlay.yaml
+deployment.apps/myserver-tomcat-app1-deployment-overlay created
+service/myserver-tomcat-app1-service-overlay created
+## 查看pod和service
+root@k8s-master1:~/underlay-cases-files# kubectl get pod,svc -o wide -n myserver
+NAME                                                          READY   STATUS    RESTARTS   AGE   IP            NODE        NOMINATED NODE   READINESS GATES
+pod/myserver-tomcat-app1-deployment-overlay-f8dbf4964-hhl96   1/1     Running   0          58s   10.200.0.16   k8s-node2   <none>           <none>
+
+NAME                                           TYPE       CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE     SELECTOR
+service/myserver-tomcat-app1-service-overlay   NodePort   172.31.5.109   <none>        80:30003/TCP   9m36s   app=myserver-tomcat-app1-overlay-selector
+## 验证overlay pod通信
+root@k8s-master1:~/underlay-cases-files# kubectl exec -it myserver-tomcat-app1-deployment-overlay-f8dbf4964-hhl96 bash -n myserver
+kubectl exec [POD] [COMMAND] is DEPRECATED and will be removed in a future version. Use kubectl exec [POD] -- [COMMAND] instead.
+[root@myserver-tomcat-app1-deployment-overlay-f8dbf4964-hhl96 /]# ping yanggc.cn
+PING yanggc.cn (8.140.5.202) 56(84) bytes of data.
+64 bytes from 8.140.5.202 (8.140.5.202): icmp_seq=1 ttl=127 time=11.4 ms
+64 bytes from 8.140.5.202 (8.140.5.202): icmp_seq=2 ttl=127 time=11.1 ms
+64 bytes from 8.140.5.202 (8.140.5.202): icmp_seq=3 ttl=127 time=11.4 ms
+^C
+--- yanggc.cn ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 11.140/11.326/11.433/0.132 ms
+```
+## 2.9 创建pod并使用underlay网络
+```bash
+## underlay pod可以与overlaypod共存(混合使用)
+root@k8s-master1:~/underlay-cases-files# kubectl apply -f 3.tomcat-app1-underlay.yaml 
+deployment.apps/myserver-tomcat-app1-deployment-underlay created
+service/myserver-tomcat-app1-service-underlay created
+## 查看创建的pod和service
+root@k8s-master1:~/underlay-cases-files# kubectl get pod,svc -o wide -n myserver
+NAME                                                            READY   STATUS    RESTARTS   AGE     IP            NODE        NOMINATED NODE   READINESS GATES
+pod/myserver-tomcat-app1-deployment-overlay-f8dbf4964-hhl96     1/1     Running   0          7m10s   10.200.0.16   k8s-node2   <none>           <none>
+pod/myserver-tomcat-app1-deployment-underlay-5f7dd46d56-c4lzp   1/1     Running   0          96s     172.31.6.1    k8s-node1   <none>           <none>
+
+NAME                                            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE   SELECTOR
+service/myserver-tomcat-app1-service-overlay    NodePort    172.31.5.109   <none>        80:30003/TCP   15m   app=myserver-tomcat-app1-overlay-selector
+service/myserver-tomcat-app1-service-underlay   ClusterIP   172.31.5.209   <none>        80/TCP         96s   app=myserver-tomcat-app1-underlay-selector
+```
+* 访问pod IP
+![access](pictures/access-pod-IP-01.png)
+
+## 2.10 通过service IP访问Pod
+```bash
+## 查看service信息
+root@k8s-master1:~/underlay-cases-files# kubectl get svc -o wide -n myserver
+NAME                                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE     SELECTOR
+myserver-tomcat-app1-service-overlay    NodePort    172.31.5.109   <none>        80:30003/TCP   20m     app=myserver-tomcat-app1-overlay-selector
+myserver-tomcat-app1-service-underlay   ClusterIP   172.31.5.209   <none>        80/TCP         6m31s   app=myserver-tomcat-app1-underlay-selector
+## windows10 cmd管理运行添加路由
+route add 172.31.5.0 MASK 255.255.255.0 -p 172.31.7.102
+```
+* 访问service ip
+![access](pictures/access-service-ip-01.png)
 # 3. 总结网络组件 flannel vxlan
 模式的网络通信流程
 # 4. 总结网络组件 calico IPIP 模式的网络通信流程
