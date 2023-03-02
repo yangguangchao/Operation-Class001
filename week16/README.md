@@ -548,7 +548,7 @@ root@k8s-master1:~/underlay-cases-files# kubectl get svc -o wide -n myserver
 NAME                                    TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE     SELECTOR
 myserver-tomcat-app1-service-overlay    NodePort    172.31.5.109   <none>        80:30003/TCP   20m     app=myserver-tomcat-app1-overlay-selector
 myserver-tomcat-app1-service-underlay   ClusterIP   172.31.5.209   <none>        80/TCP         6m31s   app=myserver-tomcat-app1-underlay-selector
-## windows10 cmd管理运行添加路由
+## windows10 以管理员身份运行cmd添加路由
 route add 172.31.5.0 MASK 255.255.255.0 -p 172.31.7.102
 ```
 * 访问service ip
