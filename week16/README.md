@@ -1594,7 +1594,7 @@ Address:	10.100.0.2:53
 Name:	kubernetes.default.svc.yanggc.local
 Address: 10.100.0.1
 ```
-## 5.9 部署官方dashboard
+### 5.9 部署官方dashboard
 ```bash
 ## 上传镜像到本地harbor
 root@haproxy1:~# docker pull kubernetesui/dashboard:v2.5.1
