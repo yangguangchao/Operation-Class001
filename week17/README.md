@@ -160,6 +160,8 @@ spec:
       - podSelector:
           matchLabels: {}
 ## 应用网络策略
+root@k8s-master1:~# kubectl apply -f Egress-magedu.yaml
+## 查看网络策略
 root@k8s-master1:~# kubectl get networkpolicy -n magedu
 NAME                          POD-SELECTOR   AGE
 egress-access-networkpolicy   <none>         19s
@@ -248,11 +250,11 @@ rtt min/avg/max/mdev = 0.084/0.109/0.163/0.033 ms
 ```bash
 ## 切换到工作目录
 root@k8s-master1:~# cd /opt/k8s-data/
-## 下载镜像
+## 下载jdk8镜像
 root@k8s-master1:/opt/k8s-data# docker pull elevy/slim_java:8
 ## 镜像重命名
 root@k8s-master1:/opt/k8s-data# docker tag elevy/slim_java:8 harbor.yanggc.cn/baseimages/slim_java:8
-## 推送到本地镜像
+## 推送到本地镜像仓库
 root@k8s-master1:/opt/k8s-data# docker push harbor.yanggc.cn/baseimages/slim_java:8
 The push refers to repository [harbor.yanggc.cn/baseimages/slim_java]
 e053edd72ca6: Pushed
@@ -264,7 +266,6 @@ root@k8s-master1:/opt/k8s-data# cd  dockerfile/web/magedu/zookeeper/
 FROM harbor.yanggc.cn/baseimages/slim_java:8
 ## 修改编译脚本镜像地址
 root@k8s-master1:/opt/k8s-data/dockerfile/web/magedu/zookeeper# vi build-command.sh
-
 docker build -t harbor.yanggc.cn/magedu/zookeeper:${TAG} .
 docker push  harbor.yanggc.cn/magedu/zookeeper:${TAG}
 ## 编译并上传镜像
@@ -360,7 +361,7 @@ Mode: follower
 root@k8s-master1:~# docker pull mysql:5.7.36
 ## 镜像重命名
 root@k8s-master1:~# docker tag mysql:5.7.36 harbor.yanggc.cn/magedu/mysql:5.7.36
-## 推送到本地仓库
+## 推送到本地镜像仓库
 root@k8s-master1:~# docker push harbor.yanggc.cn/magedu/mysql:5.7.36
 ## 下载xtrabackup镜像
 root@k8s-master1:~# docker pull zhangshijie/xtrabackup:1.0
@@ -415,7 +416,7 @@ mysql-1   2/2     Running   1 (50s ago)   73s
 ```
 ## 3.4 验证
 ```bash
-## 扩容副本
+## 修改副本为3
 root@k8s-master1:/opt/k8s-data/yaml/magedu/mysql# vi mysql-statefulset.yaml
 replicas: 3
 root@k8s-master1:/opt/k8s-data/yaml/magedu/mysql# kubectl apply -f ./
@@ -752,7 +753,7 @@ root@k8s-master1:/opt/k8s-data/dockerfile/web/magedu/wordpress/nginx# bash build
 root@k8s-master1:/opt/k8s-data/dockerfile/web/magedu/wordpress/nginx# cd ../php/
 ## 修改镜像地址
 root@k8s-master1:/opt/k8s-data/dockerfile/web/magedu/wordpress/php# sed -e 's/harbor.linuxarchitect.io/harbor.yanggc.cn/g' -i build-command.sh Dockerfile
-## 构建景象
+## 构建镜像
 root@k8s-master1:/opt/k8s-data/dockerfile/web/magedu/wordpress/php# bash build-command.sh v1
 ```
 ### 4.2.2 部署wordpress
@@ -874,7 +875,7 @@ spec:
     max:
       cpu: "2"            #限制单个Pod的最大CPU
       memory: "2Gi"       #限制单个Pod最大内存
-## 应用limitRang
+## 应用limitRange
 root@k8s-master1:~# kubectl apply -f LimitRange-magedu.yaml
 ## 查看limitRange
 root@k8s-master1:~# kubectl get limitranges  -n magedu
@@ -969,7 +970,7 @@ root@k8s-master1:~# kubectl get deploy -n magedu
 NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
 magedu-jenkins-deployment   1/1     1            1           126m
 nginx                       0/1     0            0           23s
-## 查看deploym状态
+## 查看deployment状态
 root@k8s-master1:~# kubectl get deploy nginx -o yaml -n magedu
 status:
   conditions:
@@ -1097,7 +1098,7 @@ root@k8s-master1:~# kubectl get resourcequotas -n magedu
 
 NAME           AGE   REQUEST   LIMIT
 quota-magedu   11s             limits.cpu: 0/192, limits.memory: 0/512Gi
-## 编辑一个nginx应用，使其超过resourcequotas限制
+## 编辑一个nginx应用，使其超过ResourceQuota限制
 root@k8s-master1:~#  vi nginx.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -1134,7 +1135,7 @@ root@k8s-master1:~# kubectl get deploy -n magedu
 NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
 magedu-jenkins-deployment   1/1     1            1           141m
 nginx                       0/1     0            0           10s
-## 查看应用状态
+## 查看deployment应用状态
 root@k8s-master1:~# kubectl get deploy nginx -o yaml -n magedu
 status:
   conditions:
@@ -1210,7 +1211,7 @@ root@k8s-master1:~/kube-prometheus# sed -i 's;k8s.gcr.io/prometheus-adapter/prom
 root@k8s-master1:~/kube-prometheus# grep -n "harbor.yanggc.cn" -R manifests
 manifests/kubeStateMetrics-deployment.yaml:35:        image: harbor.yanggc.cn/baseimages/kube-state-metrics:2.5.0
 manifests/prometheusAdapter-deployment.yaml:40:        image: harbor.yanggc.cn/baseimages/prometheus-adapter:v0.9.1
-## 创建命名空间和 CRD
+## 创建命名空间和CRD
 root@k8s-master1:~/kube-prometheus# kubectl apply --server-side -f manifests/setup
 customresourcedefinition.apiextensions.k8s.io/alertmanagerconfigs.monitoring.coreos.com serverside-applied
 customresourcedefinition.apiextensions.k8s.io/alertmanagers.monitoring.coreos.com serverside-applied
@@ -1221,7 +1222,7 @@ customresourcedefinition.apiextensions.k8s.io/prometheusrules.monitoring.coreos.
 customresourcedefinition.apiextensions.k8s.io/servicemonitors.monitoring.coreos.com serverside-applied
 customresourcedefinition.apiextensions.k8s.io/thanosrulers.monitoring.coreos.com serverside-applied
 namespace/monitoring serverside-applied
-## 等待命名空间和 CRD创建完成
+## 等待命名空间和CRD创建完成
 root@k8s-master1:~/kube-prometheus# kubectl wait \
         --for condition=Established \
         --all CustomResourceDefinition \
