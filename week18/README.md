@@ -3,6 +3,36 @@
 # 3. 在 K8s 环境容器中启动日志收集进程实现业务日志收集
 # 4. 通过 prometheus 对 CoreDNS 进行监控并在 grafana 显示监控图形
 # 5. 对 K8s 集群进行 master 节点扩容、node 节点扩容
+```bash
+## 查看节点信息
+root@haproxy1:/etc/kubeasz# kubectl get node
+NAME           STATUS                     ROLES    AGE   VERSION
+172.31.7.101   Ready,SchedulingDisabled   master   31m   v1.23.1
+172.31.7.102   Ready,SchedulingDisabled   master   31m   v1.23.1
+172.31.7.111   Ready                      node     27m   v1.23.1
+172.31.7.112   Ready                      node     27m   v1.23.1
+## 扩容一个master节点
+root@haproxy1:/etc/kubeasz# ./ezctl  add-master k8s-01 172.31.7.103
+## 查看节点
+root@haproxy1:/etc/kubeasz# kubectl get node
+NAME           STATUS                     ROLES    AGE     VERSION
+172.31.7.101   Ready,SchedulingDisabled   master   46m     v1.23.1
+172.31.7.102   Ready,SchedulingDisabled   master   46m     v1.23.1
+172.31.7.103   Ready,SchedulingDisabled   master   2m27s   v1.23.1
+172.31.7.111   Ready                      node     42m     v1.23.1
+172.31.7.112   Ready                      node     42m     v1.23.1
+## 扩容一个node节点
+root@haproxy1:/etc/kubeasz# ./ezctl  add-node k8s-01 172.31.7.113
+## 查看节点
+root@haproxy1:/etc/kubeasz# kubectl  get node
+NAME           STATUS                     ROLES    AGE   VERSION
+172.31.7.101   Ready,SchedulingDisabled   master   62m   v1.23.1
+172.31.7.102   Ready,SchedulingDisabled   master   62m   v1.23.1
+172.31.7.103   Ready,SchedulingDisabled   master   18m   v1.23.1
+172.31.7.111   Ready                      node     59m   v1.23.1
+172.31.7.112   Ready                      node     59m   v1.23.1
+172.31.7.113   Ready                      node     11m   v1.23.1
+```
 # 6. 对 K8s 集群进行小版本升级
 # 7. 基于 ceph rbd 及 cephfs 持久化 K8s 中 pod 的业务数据
 ## 7.1 创建初始化rbd
