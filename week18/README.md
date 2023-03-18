@@ -1,7 +1,652 @@
 # 1. 在 K8s 环境基于 daemonset 部署日志收集组件实现 pod 日志收集
+## 1.1 基于docker compose部署kafka和elasticsearch
+### 1.1.1 部署docker
+```bash
+## 安装必要的一些系统工具
+root@docker1:~# apt-get -y install apt-transport-https ca-certificates curl software-properties-common
+## 安装GPG证书
+root@docker1:~# curl -fsSL https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu/gpg | sudo apt-key add -
+Warning: apt-key is deprecated. Manage keyring files in trusted.gpg.d instead (see apt-key(8)).
+OK
+## 写入软件源信息
+root@docker1:~# add-apt-repository "deb [arch=amd64] https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu $(lsb_release -cs) stable"
+## 查看docker-ce可安装的版本
+root@docker1:~# apt-cache madison docker-ce
+ docker-ce | 5:23.0.1-1~ubuntu.22.04~jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:23.0.0-1~ubuntu.22.04~jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.23~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.22~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.21~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.20~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.19~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.18~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.17~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.16~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.15~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.14~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+ docker-ce | 5:20.10.13~3-0~ubuntu-jammy | https://mirrors.ustc.edu.cn/docker-ce/linux/ubuntu jammy/stable amd64 Packages
+## 安装docekr-ce
+root@docker1:~# apt-get -y install docker-ce
+## 配置docker参数
+{
+  "data-root":"/var/lib/docker",
+  "storage-driver":"overlay2",
+  "insecure-registries":["harbor.yanggc.cn"],
+  "registry-mirrors":["https://******.mirror.aliyuncs.com"],##替换为自己的阿里云docker加速器地址
+  "exec-opts":["native.cgroupdriver=systemd"],
+  "live-restore":false,
+  "log-opts":{
+      "max-file":"5",
+      "max-size":"100m"
+  }
+}
+## 重启docker
+root@docker1:~# systemctl restart docker
+## 查看docker信息
+root@docker1:~# docker info
+```
+### 1.1.2 部署kafka
+```bash
+## 创建kafka部署目录
+root@docker1:~# mkdir -pv /apps/kafka
+mkdir: created directory '/apps'
+mkdir: created directory '/apps/kafka'
+root@docker1:~# cd /apps/kafka/
+## docker-compose.yml配置文件
+root@docker1:/apps/kafka# cat docker-compose.yml
+version: "3.8"
+services:
+  kafka1:
+    image: 'bitnami/kafka:3.3.1'
+    networks:
+      - mynetwork
+    container_name: kafka11
+    user: root
+    ports:
+      - 9192:9092
+      - 9193:9093
+    environment:
+      ### 通用配置
+      # 允许使用kraft，即Kafka替代Zookeeper
+      - KAFKA_ENABLE_KRAFT=yes
+      # kafka角色，做broker，也要做controller
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      # 指定供外部使用的控制类请求信息
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      # 定义kafka服务端socket监听端口
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      # 定义安全协议
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      # 使用Kafka时的集群id，集群内的Kafka都要用这个id做初始化，生成一个UUID即可
+      - KAFKA_KRAFT_CLUSTER_ID=LelM2dIFQkiUFvXCEcqRWA
+      # 集群地址
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka11:9093,2@kafka22:9093,3@kafka33:9093
+      # 允许使用PLAINTEXT监听器，默认false，不建议在生产环境使用
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      # 允许自动创建不存在的topic
+      -  KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      # 设置broker最大内存，和初始内存
+      - KAFKA_HEAP_OPTS=-Xmx512M -Xms256M
+      # 不允许自动创建主题
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
+      ### broker配置
+      # 定义外网访问地址（宿主机ip地址和端口）
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://192.168.50.120:9192
+      # broker.id，必须唯一
+      - KAFKA_BROKER_ID=1
+    volumes:
+      - /apps/kafka/kafka1/kraft:/bitnami/kafka
+    #extra_hosts:
+      #- "kafka1:云服务器IP"
+      #- "kafka2:云服务器IP"
+      #- "kafka3:云服务器IP"
+  kafka2:
+    image: 'bitnami/kafka:3.3.1'
+    networks:
+      - mynetwork
+    container_name: kafka22
+    user: root
+    ports:
+      - 9292:9092
+      - 9293:9093
+    environment:
+      ### 通用配置
+      # 允许使用kraft，即Kafka替代Zookeeper
+      - KAFKA_ENABLE_KRAFT=yes
+      # kafka角色，做broker，也要做controller
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      # 指定供外部使用的控制类请求信息
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      # 定义kafka服务端socket监听端口
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      # 定义安全协议
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      # 使用Kafka时的集群id，集群内的Kafka都要用这个id做初始化，生成一个UUID即可
+      - KAFKA_KRAFT_CLUSTER_ID=LelM2dIFQkiUFvXCEcqRWA
+      # 集群地址
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka11:9093,2@kafka22:9093,3@kafka33:9093
+      # 允许使用PLAINTEXT监听器，默认false，不建议在生产环境使用
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      # 允许自动创建不存在的topic
+      -  KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      # 设置broker最大内存，和初始内存
+      - KAFKA_HEAP_OPTS=-Xmx512M -Xms256M
+      # 不允许自动创建主题
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
+      ### broker配置
+      # 定义外网访问地址（宿主机ip地址和端口）
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://192.168.50.120:9292
+      # broker.id，必须唯一
+      - KAFKA_BROKER_ID=2
+    volumes:
+      - /apps/kafka/kafka2/kraft:/bitnami/kafka
+  kafka3:
+    image: 'bitnami/kafka:3.3.1'
+    networks:
+      - mynetwork
+    container_name: kafka33
+    user: root
+    ports:
+      - 9392:9092
+      - 9393:9093
+    environment:
+      ### 通用配置
+      # 允许使用kraft，即Kafka替代Zookeeper
+      - KAFKA_ENABLE_KRAFT=yes
+      # kafka角色，做broker，也要做controller
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      # 指定供外部使用的控制类请求信息
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      # 定义kafka服务端socket监听端口
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      # 定义安全协议
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      # 使用Kafka时的集群id，集群内的Kafka都要用这个id做初始化，生成一个UUID即可
+      - KAFKA_KRAFT_CLUSTER_ID=LelM2dIFQkiUFvXCEcqRWA
+      # 集群地址
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka11:9093,2@kafka22:9093,3@kafka33:9093
+      # 允许使用PLAINTEXT监听器，默认false，不建议在生产环境使用
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      # 允许自动创建不存在的topic
+      -  KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      # 设置broker最大内存，和初始内存
+      - KAFKA_HEAP_OPTS=-Xmx512M -Xms256M
+      # 不允许自动创建主题
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
+      ### broker配置
+      # 定义外网访问地址（宿主机ip地址和端口）
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://192.168.50.120:9392
+      # broker.id，必须唯一
+      - KAFKA_BROKER_ID=3
+    volumes:
+      - /apps/kafka/kafka3/kraft:/bitnami/kafka
+
+networks:
+# 自定义服务网络,启动时自动创建
+  mynetwork:
+    driver: bridge
+## 下载镜像
+root@docker1:/apps/kafka# docker compose pull
+## 启动kafka
+root@docker1:/apps/kafka# docker compose up -d
+[+] Running 4/4
+ ⠿ Network kafka_mynetwork  Created                                                                                                     0.0s
+ ⠿ Container kafka22        Started                                                                                                     0.8s
+ ⠿ Container kafka33        Started                                                                                                     0.8s
+ ⠿ Container kafka11        Started                                                                                                     0.9s
+## 查看docker状态
+root@docker1:/apps/kafka# docker compose ps
+NAME                IMAGE                 COMMAND                  SERVICE             CREATED             STATUS              PORTS
+kafka11             bitnami/kafka:3.3.1   "/opt/bitnami/script…"   kafka1              41 seconds ago      Up 40 seconds       0.0.0.0:9192->9092/tcp, 0.0.0.0:9193->9093/tcp
+kafka22             bitnami/kafka:3.3.1   "/opt/bitnami/script…"   kafka2              41 seconds ago      Up 40 seconds       0.0.0.0:9292->9092/tcp, 0.0.0.0:9293->9093/tcp
+kafka33             bitnami/kafka:3.3.1   "/opt/bitnami/script…"   kafka3              41 seconds ago      Up 40 seconds       0.0.0.0:9392->9092/tcp, 0.0.0.0:9393->9093/tcp 
+```
+* 使用kafka-tools客户端验证
+![](pictures/kafka-client-check-01.png)
+### 1.1.3 部署elasticsearch
+```bash
+## 创建部署目录
+root@docker1:/apps/kafka# mkdir -pv /apps/elasticsearch
+mkdir: created directory '/apps/elasticsearch'
+root@docker1:/apps/kafka# cd ../elasticsearch/
+## docker-compose.yml配置文件
+version: "3.9"
+services:
+  elasticsearch:
+    image: elasticsearch:8.6.0
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+      - xpack.security.enabled=false
+    volumes:
+      - /apps/elasticsearch/data:/usr/share/elasticsearch/data
+    ports:
+      - target: 9200
+        published: 9200
+    networks:
+      - elastic
+
+  kibana:
+    image: kibana:8.6.0
+    ports:
+      - target: 5601
+        published: 5601
+    depends_on:
+      - elasticsearch
+    networks:
+      - elastic
+
+networks:
+  elastic:
+    name: elastic
+    driver: bridge
+## 创建elasticsearch挂在卷目录并修改全新啊
+root@docker1:/apps/elasticsearch# mkdir -pv data
+root@docker1:/apps/elasticsearch# chown ubuntu. data
+## 拉取镜像
+root@docker1:/apps/elasticsearch# docker compose pull
+## 启动elasticsearch
+root@docker1:/apps/elasticsearch# docker compose up -d
+[+] Running 3/3
+ ⠿ Network elastic                          Created                                                                                     0.0s
+ ⠿ Container elasticsearch-elasticsearch-1  Started                                                                                     0.3s
+ ⠿ Container elasticsearch-kibana-1         Started                                                                                     0.6s
+## 查看docker状态
+root@docker1:/apps/elasticsearch# docker compose ps
+NAME                            IMAGE                 COMMAND                  SERVICE             CREATED              STATUS              PORTS
+elasticsearch-elasticsearch-1   elasticsearch:8.6.0   "/bin/tini -- /usr/l…"   elasticsearch       About a minute ago   Up About a minute   0.0.0.0:9200->9200/tcp, 9300/tcp
+elasticsearch-kibana-1          kibana:8.6.0          "/bin/tini -- /usr/l…"   kibana              About a minute ago   Up About a minute   0.0.0.0:5601->5601/tcp
+```
+* 登录kibana验证
+![](pictures/kibana-access-check-01.png)
+## 1.2 基于daemonset控制器部署logstash
+```bash
+## 进入到logstash镜像构建目录
+root@k8s-master1:~# cd elk-case/1.daemonset-logstash/1.logstash-image-Dockerfile
+## 修改镜像地址
+root@k8s-master1:~/elk-case/1.daemonset-logstash/1.logstash-image-Dockerfile# sed -e 's/harbor.linuxarchitect.io/harbor.yanggc.cn/g' -i build-command.sh
+## 编译镜像并上传到本地harbor
+root@k8s-master1:~/elk-case/1.daemonset-logstash/1.logstash-image-Dockerfile# bash build-command.sh
+## 编辑logstash daemonset编排yaml文件
+root@k8s-master1:~/elk-case/1.daemonset-logstash/1.logstash-image-Dockerfile# cd ../
+root@k8s-master1:~/elk-case/1.daemonset-logstash# vi 2.DaemonSet-logstash.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: logstash-elasticsearch
+  namespace: kube-system
+  labels:
+    k8s-app: logstash-logging
+spec:
+  selector:
+    matchLabels:
+      name: logstash-elasticsearch
+  template:
+    metadata:
+      labels:
+        name: logstash-elasticsearch
+    spec:
+      tolerations:
+      # this toleration is to have the daemonset runnable on master nodes
+      # remove it if your masters can't run pods
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: logstash-elasticsearch
+        image: harbor.yanggc.cn/baseimages/logstash:v7.12.1-json-file-log-v1
+        env:
+        - name: "KAFKA_SERVER"
+          value: "192.168.50.120:9192,192.168.50.120:9292,192.168.50.120:9392"
+        - name: "TOPIC_ID"
+          value: "jsonfile-log-topic"
+        - name: "CODEC"
+          value: "json"
+        volumeMounts:
+        - name: varlog #定义宿主机系统日志挂载路径
+          mountPath: /var/log #宿主机系统日志挂载点
+        - name: varlibdockercontainers #定义容器日志挂载路径,和logstash配置文件中的收集路径保持一直
+          mountPath: /var/lib/docker/containers #docker挂载路径
+          #mountPath: /var/log/pods #containerd挂载路径,此路径与logstash的日志收集路径必须一致
+          readOnly: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log #宿主机系统日志
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers #docker的宿主机日志路径
+## 部署logstash
+root@k8s-master1:~/elk-case/1.daemonset-logstash# kubectl apply -f 2.DaemonSet-logstash.yaml
+daemonset.apps/logstash-elasticsearch created
+## 查看pod
+root@k8s-master1:~/elk-case/1.daemonset-logstash# kubectl get pod -l name=logstash-elasticsearch -n kube-system
+NAME                           READY   STATUS    RESTARTS   AGE
+logstash-elasticsearch-7qzmk   1/1     Running   0          51s
+logstash-elasticsearch-9qkn7   1/1     Running   0          51s
+logstash-elasticsearch-bqndb   1/1     Running   0          51s
+logstash-elasticsearch-dx7qk   1/1     Running   0          51s
+logstash-elasticsearch-fcdkf   1/1     Running   0          51s
+logstash-elasticsearch-rltvj   1/1     Running   0          51s
+```
+* kafka客户端查看topic
+![](pictures/kafka-client-show-data-02.png)
+
+## 1.3 配置logstash消费kafka写入elasticsearch
+```bash
+## 下载logstash安装包
+root@docker1:~# wget https://mirrors.tuna.tsinghua.edu.cn/elasticstack/apt/7.x/pool/main/l/logstash/logstash-7.17.9-amd64.deb
+## 安装logstash
+root@docker1:~# dpkg -i logstash-7.17.9-amd64.deb
+## 编辑配置文件
+root@docker1:~# cd /etc/logstash/conf.d/
+root@docker1:/etc/logstash/conf.d# vi 3.logsatsh-daemonset-jsonfile-kafka-to-es.conf
+input {
+  kafka {
+    bootstrap_servers => "192.168.50.120:9192,192.168.50.120:9292,192.168.50.120:9392"
+    topics => ["jsonfile-log-topic"]
+    codec => "json"
+  }
+}
+
+output {
+  #if [fields][type] == "app1-access-log" {
+  if [type] == "jsonfile-daemonset-applog" {
+    elasticsearch {
+      hosts => ["192.168.50.120:9200"]
+      index => "jsonfile-daemonset-applog-%{+YYYY.MM.dd}"
+    }}
+
+  if [type] == "jsonfile-daemonset-syslog" {
+    elasticsearch {
+      hosts => ["192.168.50.120:9200"]
+      index => "jsonfile-daemonset-syslog-%{+YYYY.MM.dd}"
+    }}
+
+}
+## 测试配置文件
+root@docker1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f ./3.logsatsh-daemonset-jsonfile-kafka-to-es.conf -t
+## 前台启动服务
+root@docker1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f ./3.logsatsh-daemonset-jsonfile-kafka-to-es.conf
+## 写入测试日志到系统日志文件中
+root@k8s-master1:/var/log# echo "auth test v1" >>auth.log
+root@k8s-master1:/var/log# echo "auth test v2" >>auth.log
+```
+* 通过elasticsearch插件查看数据
+![](pictures/elasticseatch-headerr-plugin-show-data-01.png)
+* 通过kibana查看数据
+![](pictures/kibana-show-data-case1-01.png)
+![](pictures/kibana-show-data-case1-02.png)
 # 2. 在 K8s 环境对 pod 添加 sidecar 容器实现业务日志收集
+## 2.1 sidecar收集日志写入kafka
+```bash
+## 切换到 logstash sidercar镜像编译目录
+root@k8s-master1:~/elk-case/1.daemonset-logstash# cd ../2.sidecar-logstash/1.logstash-image-Dockerfile/
+## 修改镜像地址
+root@k8s-master1:~/elk-case/2.sidecar-logstash/1.logstash-image-Dockerfile# sed -e 's/harbor.linuxarchitect.io/harbor.yanggc.cn/g' -i build-command.sh
+## 编译镜像
+root@k8s-master1:~/elk-case/2.sidecar-logstash/1.logstash-image-Dockerfile# bash build-command.sh
+## 修改应用镜像地址
+root@k8s-master1:~/elk-case/2.sidecar-logstash/1.logstash-image-Dockerfile# cd ..
+root@k8s-master1:~/elk-case/2.sidecar-logstash# sed -e 's/harbor.linuxarchitect.io/harbor.yanggc.cn/g' -i 2.tomcat-app1.yaml
+## 修改kafka地址
+root@k8s-master1:~/elk-case/2.sidecar-logstash# sed -e 's/172.31.2.107:9092,172.31.2.108:9092,172.31.2.109:9092/192.168.50.120:9192,192.168.50.120:9292,192.168.50.120:9392/g' -i 2.tomcat-app1.yaml
+## 部署应用和应用service
+root@k8s-master1:~/elk-case/2.sidecar-logstash# kubectl apply -f 2.tomcat-app1.yaml -f 3.tomcat-service.yaml
+## 查看pod和service
+root@k8s-master1:~/elk-case/2.sidecar-logstash# kubectl get pod,svc -n magedu
+NAME                                                 READY   STATUS    RESTARTS       AGE
+pod/magedu-jenkins-deployment-db96bdb96-8vjpm        1/1     Running   1 (169m ago)   7d7h
+pod/magedu-tomcat-app1-deployment-65c67788cc-n2dqr   2/2     Running   0              111s
+pod/magedu-tomcat-app1-deployment-65c67788cc-xktbc   2/2     Running   0              111s
+pod/magedu-tomcat-app1-deployment-65c67788cc-zgvvd   2/2     Running   0              111s
+
+NAME                                 TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+service/magedu-jenkins-service       NodePort   10.100.207.62   <none>        80:38080/TCP   7d7h
+service/magedu-tomcat-app1-service   NodePort   10.100.10.140   <none>        80:40080/TCP   111s
+## 访问应用测试
+root@k8s-master1:~/elk-case/2.sidecar-logstash# curl 172.31.7.101:40080/myapp/
+tomcat app1 v1
+```
+* kafka客户端查看数据
+![](pictures/kibana-show-data-case1-01.png)
+## 2.2 logstash从kafka消费日志写入elasticsearch
+```bash
+## 编辑logstash配置文件
+root@docker1:/etc/logstash/conf.d# vi 4.logsatsh-sidecar-kafka-to-es.conf
+input {
+  kafka {
+    bootstrap_servers => "192.168.50.120:9192,192.168.50.120:9292,192.168.50.120:9392"
+    topics => ["tomcat-app1-topic"]
+    codec => "json"
+  }
+}
+
+
+output {
+  if [type] == "app1-sidecar-access-log" {
+    elasticsearch {
+      hosts => ["192.168.50.120:9200"]
+      index => "sidecar-app1-accesslog-%{+YYYY.MM.dd}"
+    }
+  }
+
+  if [type] == "app1-sidecar-catalina-log" {
+    elasticsearch {
+      hosts => ["192.168.50.120:9200"]
+      index => "sidecar-app1-catalinalog-%{+YYYY.MM.dd}"
+    }
+  }
+
+}
+## 测试配置文件
+root@docker1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f ./4.logsatsh-sidecar-kafka-to-es.conf -t
+## 前台启动logstash
+root@docker1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f ./4.logsatsh-sidecar-kafka-to-es.conf
+## 重启应用生成catalina日志
+root@k8s-master1:~/elk-case/2.sidecar-logstash/1.logstash-image-Dockerfile# kubectl rollout restart deploy magedu-tomcat-app1-deployment -n magedu
+## 请求应用生成access日志
+root@k8s-master1:~/elk-case/2.sidecar-logstash/1.logstash-image-Dockerfile# while true;do curl 172.31.7.101:40080/myapp/;sleep 0.5;done
+```
+* elasticsearch插件查看数据
+![](pictures/elasticsearch-header-plugin-show-data-case2-01.png)
+* kibana查看数据
+![](pictures/kibana-show-data-cese2-01.png)
+![](pictures/kibana-show-data-case2-02.png)
 # 3. 在 K8s 环境容器中启动日志收集进程实现业务日志收集
+## 3.1 filebeat收集容器内日志写入kafka
+```bash
+## 进入到filebeat收集容器日志镜像编译目录
+root@k8s-master1:~/elk-case/2.sidecar-logstash# cd ../3.container-filebeat-process/1.webapp-filebeat-image-Dockerfile/
+## 替换镜像地址
+root@k8s-master1:~/elk-case/3.container-filebeat-process/1.webapp-filebeat-image-Dockerfile# sed -e 's/harbor.linuxarchitect.io/harbor.yanggc.cn/g' -i build-command.sh Dockerfile
+## 修改filebeat.yml文件
+root@k8s-master1:~/elk-case/3.container-filebeat-process/1.webapp-filebeat-image-Dockerfile# vi filebeat.yml
+output.kafka:
+  hosts: ["192.168.50.120:9192"]
+## 编译镜像
+root@k8s-master1:~/elk-case/3.container-filebeat-process/1.webapp-filebeat-image-Dockerfile# bash build-command.sh v1
+## 修改应用镜像地址
+root@k8s-master1:~/elk-case/3.container-filebeat-process/1.webapp-filebeat-image-Dockerfile# cd ..
+root@k8s-master1:~/elk-case/3.container-filebeat-process# sed -e 's/harbor.linuxarchitect.io/harbor.yanggc.cn/g' -i 3.tomcat-app1.yaml
+## 部署应用和service
+root@k8s-master1:~/elk-case/3.container-filebeat-process# kubectl apply -f 3.tomcat-app1.yaml -f 4.tomcat-service.yaml
+deployment.apps/magedu-tomcat-app1-filebeat-deployment created
+service/magedu-tomcat-app1-filebeat-service created
+## 查看创建的资源
+root@k8s-master1:~/elk-case/3.container-filebeat-process# kubectl get pod -n magedu
+NAME                                                      READY   STATUS    RESTARTS       AGE
+magedu-jenkins-deployment-db96bdb96-8vjpm                 1/1     Running   1 (4h1m ago)   7d9h
+magedu-tomcat-app1-filebeat-deployment-54fdb99fd4-4jnxm   1/1     Running   0              38s
+magedu-tomcat-app1-filebeat-deployment-54fdb99fd4-wrmqk   1/1     Running   0              38s
+root@k8s-master1:~/elk-case/3.container-filebeat-process# kubectl get pod,svc -n magedu
+NAME                                                          READY   STATUS    RESTARTS       AGE
+pod/magedu-jenkins-deployment-db96bdb96-8vjpm                 1/1     Running   1 (4h2m ago)   7d9h
+pod/magedu-tomcat-app1-filebeat-deployment-54fdb99fd4-4jnxm   1/1     Running   0              45s
+pod/magedu-tomcat-app1-filebeat-deployment-54fdb99fd4-wrmqk   1/1     Running   0              45s
+
+NAME                                          TYPE       CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+service/magedu-jenkins-service                NodePort   10.100.207.62    <none>        80:38080/TCP   7d9h
+service/magedu-tomcat-app1-filebeat-service   NodePort   10.100.218.175   <none>        80:30092/TCP   45s
+## 查看pod进程
+root@k8s-master1:~# kubectl get pod -n magedu
+NAME                                                     READY   STATUS    RESTARTS        AGE
+magedu-jenkins-deployment-db96bdb96-8vjpm                1/1     Running   1 (4h15m ago)   7d9h
+magedu-tomcat-app1-filebeat-deployment-9b75cbd85-78shd   1/1     Running   0               2m33s
+magedu-tomcat-app1-filebeat-deployment-9b75cbd85-bnjws   1/1     Running   0               2m34s
+root@k8s-master1:~# kubectl exec -it magedu-tomcat-app1-filebeat-deployment-9b75cbd85-78shd bash -n magedu
+[root@magedu-tomcat-app1-filebeat-deployment-9b75cbd85-78shd /]# ps aux
+USER         PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root           1  0.0  0.0  11704  2576 ?        Ss   20:11   0:00 /bin/bash /apps/tomcat/bin/run_tomcat.sh
+root           7  0.1  1.8 1000228 74296 ?       Sl   20:11   0:00 /usr/share/filebeat/bin/filebeat -e -c /etc/filebeat/filebeat.yml -path.ho
+tomcat        36  1.0  2.8 3521956 114812 ?      Sl   20:11   0:02 /usr/local/jdk/bin/java -Djava.util.logging.config.file=/apps/tomcat/conf/
+root          37  0.0  0.0   4420   680 ?        S    20:11   0:00 tail -f /etc/hosts
+root          86  0.0  0.0  11844  3040 pts/0    Ss   20:14   0:00 bash
+root         102  0.0  0.0  51748  3260 pts/0    R+   20:14   0:00 ps aux
+## 模拟请求产生日志
+root@k8s-master1:~/elk-case/3.container-filebeat-process# while true;do curl 172.31.7.101:30092/myapp/;sleep 0.5;done
+## 重启应用生成catalina日志
+root@k8s-master1:~# kubectl get deploy -n magedu
+NAME                                     READY   UP-TO-DATE   AVAILABLE   AGE
+magedu-jenkins-deployment                1/1     1            1           7d9h
+magedu-tomcat-app1-filebeat-deployment   2/2     2            2           11m
+root@k8s-master1:~# kubectl rollout restart deployment magedu-tomcat-app1-filebeat-deployment -n magedu
+```
+* kafka客户端查看topic数据
+![](pictures/kafka-client-show-data-04.png)
+
+## 3.2 logstash从kafka消费写入elasticsearch
+```bash
+## 编辑logstash配置文件
+root@docker1:/etc/logstash/conf.d# vi 5.logstash-filebeat-process-kafka-to-es.conf
+input {
+  kafka {
+    bootstrap_servers => "192.168.50.120:9192,192.168.50.120:9292,192.168.50.120:9392"
+    topics => ["filebeat-magedu-app1"]
+    codec => "json"
+  }
+}
+
+
+output {
+  if [fields][type] == "filebeat-tomcat-catalina" {
+    elasticsearch {
+      hosts => ["192.168.50.120:9200"]
+      index => "filebeat-tomcat-catalina-%{+YYYY.MM.dd}"
+    }}
+
+  if [fields][type] == "filebeat-tomcat-accesslog" {
+    elasticsearch {
+      hosts => ["192.168.50.120:9200"]
+      index => "filebeat-tomcat-accesslog-%{+YYYY.MM.dd}"
+    }}
+
+}
+
+## 测试配置文件
+root@docker1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f ./5.logstash-filebeat-process-kafka-to-es.conf -t
+## 前台启动logstash
+root@docker1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f ./5.logstash-filebeat-process-kafka-to-es.conf
+```
+* elasticsearch插件查看数据
+![](pictures/elasticseatch-headerr-plugin-show-data-01.png)
+* kibana查看数据
+![](pictures/kibana-show-data-case3-01.png)
+![](pictures/kibana-show-data-case3-02.png)
+
 # 4. 通过 prometheus 对 CoreDNS 进行监控并在 grafana 显示监控图形
+* 基于上周课部署的coredns和prometheus
+* coredns已开启prometheus监控插件
+```bash
+## 开启prometheus热加载更新配置
+root@k8s-master1:~# cd /usr/local/src/prometheus-case-files/
+root@k8s-master1:/usr/local/src/prometheus-case-files# vi case3-2-prometheus-deployment.yaml
+      containers:
+      - name: prometheus
+        image: registry.cn-hangzhou.aliyuncs.com/zhangshijie/prometheus:v2.42.0
+        imagePullPolicy: IfNotPresent
+        command:
+          - prometheus
+          - --config.file=/etc/prometheus/prometheus.yml
+          - --storage.tsdb.path=/prometheus
+          - --storage.tsdb.retention=720h
+          - --web.enable-lifecycle
+## 删除之前创建的prometheus
+root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl delete -f case3-2-prometheus-deployment.yaml
+deployment.apps "prometheus-server" deleted
+## 应用修改后的配置
+root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl apply -f case3-2-prometheus-deployment.yaml
+deployment.apps/prometheus-server configured
+## 查看coredns configmap
+root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl get cm coredns -o yaml -n kube-system
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health {
+            lameduck 5s
+        }
+        ready
+        kubernetes yanggc.local. in-addr.arpa ip6.arpa {
+            pods insecure
+            fallthrough in-addr.arpa ip6.arpa
+            ttl 30
+        }
+        prometheus :9153
+        forward . 8.8.8.8 {
+            max_concurrent 1000
+        }
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+kind: ConfigMap
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","data":{"Corefile":".:53 {\n    errors\n    health {\n        lameduck 5s\n    }\n    ready\n    kubernetes yanggc.local. in-addr.arpa ip6.arpa {\n        pods insecure\n        fallthrough in-addr.arpa ip6.arpa\n        ttl 30\n    }\n    prometheus :9153\n    forward . 8.8.8.8 {\n        max_concurrent 1000\n    }\n    cache 30\n    loop\n    reload\n    loadbalance\n}\n"},"kind":"ConfigMap","metadata":{"annotations":{},"labels":{"addonmanager.kubernetes.io/mode":"EnsureExists"},"name":"coredns","namespace":"kube-system"}}
+  creationTimestamp: "2023-03-04T11:31:47Z"
+  labels:
+    addonmanager.kubernetes.io/mode: EnsureExists
+  name: coredns
+  namespace: kube-system
+  resourceVersion: "10528"
+  uid: c872e4db-68be-461b-abab-26145c2fc114
+## prometheus configmap加入coredns服务发现
+root@k8s-master1:/usr/local/src/prometheus-case-files# vi case3-1-prometheus-cfg.yaml
+    - job_name: kube-dns
+      honor_labels: true
+      kubernetes_sd_configs:
+      - role: pod
+      relabel_configs:
+      - action: keep
+        source_labels:
+        - __meta_kubernetes_namespace
+        - __meta_kubernetes_pod_name
+        separator: '/'
+        regex: 'kube-system/coredns.+'
+      - source_labels:
+        - __meta_kubernetes_pod_container_port_name
+        action: keep
+        regex: metrics
+      - source_labels:
+        - __meta_kubernetes_pod_name
+        action: replace
+        target_label: instance
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+## 重建prometheus
+root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl delete -f case3-2-prometheus-deployment.yaml && kubectl apply -f case3-2-prometheus-deployment.yaml
+deployment.apps "prometheus-server" deleted
+deployment.apps/prometheus-server created
+```
+* 查看prometheus targets
+![](pictures/prometheus-target-coredns-show-01.png)
+* grafana导入模板14981并验证coredns监控数据
+![](pictures/grafana-coredns-dashboard-01.png)
 # 5. 对 K8s 集群进行 master 节点扩容、node 节点扩容
 ```bash
 ## 查看节点信息
@@ -34,6 +679,87 @@ NAME           STATUS                     ROLES    AGE   VERSION
 172.31.7.113   Ready                      node     11m   v1.23.1
 ```
 # 6. 对 K8s 集群进行小版本升级
+```bash
+## 查看集群版本
+root@k8s-master1:~# kubectl get node
+NAME           STATUS                     ROLES    AGE   VERSION
+172.31.7.101   Ready,SchedulingDisabled   master   14d   v1.23.1
+172.31.7.102   Ready,SchedulingDisabled   master   14d   v1.23.1
+172.31.7.103   Ready,SchedulingDisabled   master   14d   v1.23.1
+172.31.7.111   Ready                      node     14d   v1.23.1
+172.31.7.112   Ready                      node     14d   v1.23.1
+172.31.7.113   Ready                      node     14d   v1.23.1
+root@k8s-master1:~# kubectl version
+Client Version: version.Info{Major:"1", Minor:"23", GitVersion:"v1.23.1", GitCommit:"86ec240af8cbd1b60bcc4c03c20da9b98005b92e", GitTreeState:"clean", BuildDate:"2021-12-16T11:41:01Z", GoVersion:"go1.17.5", Compiler:"gc", Platform:"linux/amd64"}
+Server Version: version.Info{Major:"1", Minor:"23", GitVersion:"v1.23.1", GitCommit:"86ec240af8cbd1b60bcc4c03c20da9b98005b92e", GitTreeState:"clean", BuildDate:"2021-12-16T11:34:54Z", GoVersion:"go1.17.5", Compiler:"gc", Platform:"linux/amd64"}
+## 下载升级包
+root@haproxy1:~# cd /usr/local/src/
+root@haproxy1:/usr/local/src# wget https://dl.k8s.io/v1.23.17/kubernetes.tar.gz
+root@haproxy1:/usr/local/src# wget https://dl.k8s.io/v1.23.17/kubernetes-client-linux-amd64.tar.gz
+root@haproxy1:/usr/local/src# wget https://dl.k8s.io/v1.23.17/kubernetes-server-linux-amd64.tar.gz
+root@haproxy1:/usr/local/src# wget https://dl.k8s.io/v1.23.17/kubernetes-node-linux-amd64.tar.gz
+## 解压升级包
+root@haproxy1:/usr/local/src# tar xf kubernetes.tar.gz
+root@haproxy1:/usr/local/src# tar xf kubernetes-server-linux-amd64.tar.gz
+root@haproxy1:/usr/local/src# tar xf kubernetes-client-linux-amd64.tar.gz
+root@haproxy1:/usr/local/src# tar xf kubernetes-node-linux-amd64.tar.gz
+## 备份旧版本二级制文件
+root@haproxy1:~# cd /etc/kubeasz/
+root@haproxy1:/etc/kubeasz# cp -r bin bin-2.23.1-backup
+## 拷贝新版本二进制文件到部署目录
+root@haproxy1:/usr/local/src/kubernetes/server/bin# cp kube-apiserver kube-controller-manager kube-scheduler kubelet kube-proxy kubectl /etc/
+kubeasz/bin/
+## 进入到kubeasz部署目录
+root@haproxy1:/usr/local/src/kubernetes/server/bin# cd /etc/kubeasz/
+## 查看ezctl命令帮助
+root@haproxy1:/etc/kubeasz# ./ezctl --help
+Usage: ezctl COMMAND [args]
+-------------------------------------------------------------------------------------
+Cluster setups:
+    list		             to list all of the managed clusters
+    checkout    <cluster>            to switch default kubeconfig of the cluster
+    new         <cluster>            to start a new k8s deploy with name 'cluster'
+    setup       <cluster>  <step>    to setup a cluster, also supporting a step-by-step way
+    start       <cluster>            to start all of the k8s services stopped by 'ezctl stop'
+    stop        <cluster>            to stop all of the k8s services temporarily
+    upgrade     <cluster>            to upgrade the k8s cluster
+    destroy     <cluster>            to destroy the k8s cluster
+    backup      <cluster>            to backup the cluster state (etcd snapshot)
+    restore     <cluster>            to restore the cluster state from backups
+    start-aio		             to quickly setup an all-in-one cluster with 'default' settings
+
+Cluster ops:
+    add-etcd    <cluster>  <ip>      to add a etcd-node to the etcd cluster
+    add-master  <cluster>  <ip>      to add a master node to the k8s cluster
+    add-node    <cluster>  <ip>      to add a work node to the k8s cluster
+    del-etcd    <cluster>  <ip>      to delete a etcd-node from the etcd cluster
+    del-master  <cluster>  <ip>      to delete a master node from the k8s cluster
+    del-node    <cluster>  <ip>      to delete a work node from the k8s cluster
+
+Extra operation:
+    kcfg-adm    <cluster>  <args>    to manage client kubeconfig of the k8s cluster
+
+Use "ezctl help <command>" for more information about a given command.
+## 查看集群列表
+root@haproxy1:/etc/kubeasz# ./ezctl list
+2023-03-18 13:58:46 INFO list of managed clusters:
+==> cluster 1:	k8s-01 (current)
+root@haproxy1:/etc/kubeasz#
+## 升级集群
+root@haproxy1:/etc/kubeasz# ./ezctl upgrade k8s-01
+## 升级完成验证
+root@haproxy1:/etc/kubeasz# kubectl get node
+NAME           STATUS                     ROLES   AGE   VERSION
+172.31.7.101   Ready,SchedulingDisabled   node    14d   v1.23.17
+172.31.7.102   Ready,SchedulingDisabled   node    14d   v1.23.17
+172.31.7.103   Ready,SchedulingDisabled   node    14d   v1.23.17
+172.31.7.111   Ready                      node    14d   v1.23.17
+172.31.7.112   Ready                      node    14d   v1.23.17
+172.31.7.113   Ready                      node    14d   v1.23.17
+root@haproxy1:/etc/kubeasz# kubectl version
+Client Version: version.Info{Major:"1", Minor:"23", GitVersion:"v1.23.17", GitCommit:"953be8927218ec8067e1af2641e540238ffd7576", GitTreeState:"clean", BuildDate:"2023-02-22T13:34:27Z", GoVersion:"go1.19.6", Compiler:"gc", Platform:"linux/amd64"}
+Server Version: version.Info{Major:"1", Minor:"23", GitVersion:"v1.23.17", GitCommit:"953be8927218ec8067e1af2641e540238ffd7576", GitTreeState:"clean", BuildDate:"2023-02-22T13:27:46Z", GoVersion:"go1.19.6", Compiler:"gc", Platform:"linux/amd64"}
+```
 # 7. 基于 ceph rbd 及 cephfs 持久化 K8s 中 pod 的业务数据
 ## 7.1 创建初始化rbd
 ```bash
