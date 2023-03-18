@@ -32,7 +32,7 @@ root@docker1:~# apt-get -y install docker-ce
   "data-root":"/var/lib/docker",
   "storage-driver":"overlay2",
   "insecure-registries":["harbor.yanggc.cn"],
-  "registry-mirrors":["https://******.mirror.aliyuncs.com"],##替换为自己的阿里云docker加速器地址
+  "registry-mirrors":["https://******.mirror.aliyuncs.com"],##替换为自己的阿里云docker镜像加速器地址
   "exec-opts":["native.cgroupdriver=systemd"],
   "live-restore":false,
   "log-opts":{
@@ -410,7 +410,7 @@ root@k8s-master1:~/elk-case/2.sidecar-logstash# curl 172.31.7.101:40080/myapp/
 tomcat app1 v1
 ```
 * kafka客户端查看数据
-![](pictures/kibana-show-data-case1-01.png)
+![](pictures/kafka-clinet-show-data-03.png)
 ## 2.2 logstash从kafka消费日志写入elasticsearch
 ```bash
 ## 编辑logstash配置文件
@@ -864,8 +864,8 @@ root@k8s-node1:~# ceph --user chaoge-ygc -s
 root@k8s-node1:~# rbd --id chaoge-ygc ls --pool=ygc-rbd-pool1
 ygc-img-img1
 ```
-## 7.4 通过keyring文件挂载rbd
-### 7.4.1 通过keyring文件直接挂载-busybox
+## 7.5 通过keyring文件挂载rbd
+### 7.5.1 通过keyring文件直接挂载-busybox
 ```bash
 ## pod yaml 文件
 root@k8s-master1:~/ceph-case# cat case1-busybox-keyring.yaml 
@@ -930,7 +930,7 @@ tmpfs                  1991592         0   1991592   0% /proc/scsi
 tmpfs                  1991592         0   1991592   0% /sys/firmware
 
 ```
-### 7.4.2 通过keyring文件直接挂载-nginx
+### 7.5.2 通过keyring文件直接挂载-nginx
 ```bash
 ## pod yaml 文件
 root@k8s-master1:~/ceph-case# cat case2-1-nginx-keyring-deployment.yaml 
@@ -1039,7 +1039,7 @@ root@k8s-node2:~# rbd showmapped
 id  pool           namespace  image         snap  device   
 0   ygc-rbd-pool1             ygc-img-img1  -     /dev/rbd0
 ```
-### 7.4.3 通过secret挂载rbd
+### 7.5.3 通过secret挂载rbd
 ```
 ## 将key进行base64编码
 bash-4.4$ ceph auth print-key client.chaoge-ygc
@@ -1121,14 +1121,14 @@ tmpfs                              3.8G   12K  3.8G   1% /run/secrets/kubernetes
 tmpfs                              1.9G     0  1.9G   0% /proc/acpi
 tmpfs                              1.9G     0  1.9G   0% /proc/scsi
 tmpfs                              1.9G     0  1.9G   0% /sys/firmware
-## 宿主机验证挂
+## 宿主机验证挂载
 root@k8s-node2:~# rbd showmapped
 id  pool           namespace  image         snap  device   
 0   ygc-rbd-pool1             ygc-img-img1  -     /dev/rbd0
 ```
-### 7.4.4 动态存储卷供给
+### 7.5.4 动态存储卷供给
 ```bash
-## 进入rook csi实例rbd目录
+## 进入rook csi示例rbd目录
 root@k8s-master1:~# cd rook-1.11.1/deploy/examples/csi/rbd
 ## storageclass yaml文件
 root@k8s-master1:~/rook-1.11.1/deploy/examples/csi/rbd# cat storageclass.yaml 
@@ -1259,7 +1259,7 @@ pvc-5023b606-401f-42fb-a1e1-2d6f95585e08   5Gi        RWO            Delete     
 ## ceph 验证是否自动创建image
 bash-4.4$ rbd ls --pool replicapool
 csi-vol-8ff48152-1944-4950-a7eb-d0102ebaf713
-## 单机mysql yaml 文
+## 单机mysql yaml编排文件
 root@k8s-master1:~/ceph-case# cat case8-mysql-single.yaml 
 apiVersion: apps/v1
 kind: Deployment
@@ -1364,7 +1364,8 @@ spec:
     nodePort: 30306
   selector:
     app: mysql
-## 创建MySQLroot@k8s-master1:~/ceph-case# kubectl apply -f case8-mysql-single.yaml
+## 创建MySQL
+root@k8s-master1:~/ceph-case# kubectl apply -f case8-mysql-single.yaml
 ## 查看pod和service
 root@k8s-master1:~/ceph-case# kubectl get pod,svc
 NAME                         READY   STATUS    RESTARTS   AGE
@@ -1404,7 +1405,7 @@ Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
 
 mysql> 
 ```
-### 7.4.5 cephfs 存储类使用
+### 7.5.5 cephfs 存储类使用
 ```bash
 ## cephfs存储类
 root@k8s-master1:~# cd rook-1.11.1/deploy/examples/csi/cephfs
