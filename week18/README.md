@@ -559,9 +559,35 @@ root@docker1:/etc/logstash/conf.d# /usr/share/logstash/bin/logstash -f ./5.logst
 * 基于上周课部署的coredns和prometheus
 * coredns已开启prometheus监控插件
 ```bash
-## 开启prometheus热加载更新配置
+## 删除之前创建的prometheus
 root@k8s-master1:~# cd /usr/local/src/prometheus-case-files/
+root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl delete -f case3-2-prometheus-deployment.yaml
+deployment.apps "prometheus-server" deleted
+## 开启prometheus热加载更新配置
 root@k8s-master1:/usr/local/src/prometheus-case-files# vi case3-2-prometheus-deployment.yaml
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-server
+  namespace: monitoring
+  labels:
+    app: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+      component: server
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        component: server
+      annotations:
+        prometheus.io/scrape: 'false'
+    spec:
+      serviceAccountName: monitor
       containers:
       - name: prometheus
         image: registry.cn-hangzhou.aliyuncs.com/zhangshijie/prometheus:v2.42.0
@@ -572,9 +598,31 @@ root@k8s-master1:/usr/local/src/prometheus-case-files# vi case3-2-prometheus-dep
           - --storage.tsdb.path=/prometheus
           - --storage.tsdb.retention=720h
           - --web.enable-lifecycle
-## 删除之前创建的prometheus
-root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl delete -f case3-2-prometheus-deployment.yaml
-deployment.apps "prometheus-server" deleted
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 9090
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/prometheus
+          name: prometheus-config
+        - mountPath: /prometheus/
+          name: prometheus-storage-volume
+      volumes:
+        - name: prometheus-config
+          configMap:
+            defaultMode: 420
+            name: prometheus-config
+        - name: prometheus-storage-volume
+          nfs:
+           server: 172.31.7.109
+           path: /data/k8sdata/prometheusdata
+
 ## 应用修改后的配置
 root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl apply -f case3-2-prometheus-deployment.yaml
 deployment.apps/prometheus-server configured
@@ -638,10 +686,50 @@ root@k8s-master1:/usr/local/src/prometheus-case-files# vi case3-1-prometheus-cfg
         target_label: instance
       - action: labelmap
         regex: __meta_kubernetes_pod_label_(.+)
-## 重建prometheus
-root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl delete -f case3-2-prometheus-deployment.yaml && kubectl apply -f case3-2-prometheus-deployment.yaml
-deployment.apps "prometheus-server" deleted
-deployment.apps/prometheus-server created
+## 登录prometheus pod查看配置
+root@k8s-master1:~# kubectl get pod -n monitoring
+NAME                                 READY   STATUS    RESTARTS        AGE
+cadvisor-5nmv6                       1/1     Running   1 (6h56m ago)   7d8h
+cadvisor-6r6qg                       1/1     Running   1 (6h56m ago)   7d8h
+cadvisor-fph4s                       1/1     Running   1 (6h56m ago)   7d8h
+cadvisor-mnq9j                       1/1     Running   1 (6h56m ago)   7d8h
+cadvisor-nwkvr                       1/1     Running   1 (6h56m ago)   7d8h
+cadvisor-ts4xw                       1/1     Running   1 (6h56m ago)   7d8h
+grafana-68568b858b-l5dlm             1/1     Running   1 (6h56m ago)   7d8h
+node-exporter-5t765                  1/1     Running   1 (6h56m ago)   7d8h
+node-exporter-hp87z                  1/1     Running   1 (6h56m ago)   7d8h
+node-exporter-m7nwb                  1/1     Running   1 (6h56m ago)   7d8h
+node-exporter-p87ll                  1/1     Running   1 (6h56m ago)   7d8h
+node-exporter-vdkhk                  1/1     Running   1 (6h56m ago)   7d8h
+node-exporter-w8j2c                  1/1     Running   1 (6h56m ago)   7d8h
+prometheus-server-599bd8b555-sfctx   1/1     Running   0               10m
+root@k8s-master1:~# kubectl exec -it prometheus-server-599bd8b555-sfctx sh -n monitoring
+$ cat /etc/prometheus/prometheus.yml
+......
+- job_name: kube-dns
+  honor_labels: true
+  kubernetes_sd_configs:
+  - role: pod
+  relabel_configs:
+  - action: keep
+    source_labels:
+    - __meta_kubernetes_namespace
+    - __meta_kubernetes_pod_name
+    separator: '/'
+    regex: 'kube-system/coredns.+'
+  - source_labels:
+    - __meta_kubernetes_pod_container_port_name
+    action: keep
+    regex: metrics
+  - source_labels:
+    - __meta_kubernetes_pod_name
+    action: replace
+    target_label: instance
+  - action: labelmap
+    regex: __meta_kubernetes_pod_label_(.+)
+# 查看添加的配置已经更新到prometheus文件里
+## 在宿主机调用prometheus热更新接口
+root@k8s-master1:/usr/local/src/prometheus-case-files# curl -X POST http://172.31.7.101:30090/-/reload
 ```
 * 查看prometheus targets
 ![](pictures/prometheus-target-coredns-show-01.png)
