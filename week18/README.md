@@ -727,7 +727,7 @@ $ cat /etc/prometheus/prometheus.yml
     target_label: instance
   - action: labelmap
     regex: __meta_kubernetes_pod_label_(.+)
-# 查看添加的配置已经更新到prometheus文件里
+# 查看添加的配置已经更新到prometheus配置文件里
 ## 在宿主机调用prometheus热更新接口
 root@k8s-master1:/usr/local/src/prometheus-case-files# curl -X POST http://172.31.7.101:30090/-/reload
 ```
