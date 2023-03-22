@@ -1341,10 +1341,10 @@ root@k8s-master1:/usr/local/src# unzip prometheus-case-files.zip
 ## 进入到prometheus资源文件目录
 root@k8s-master1:/usr/local/src# cd prometheus-case-files/
 ## 创建namespace
-root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl create ns monitoring
+root@k8s-master1:/usr/local/src/1.prometheus-case-files# kubectl create ns monitoring
 namespace/monitoring created
 ## 部署cadvisor
-root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl apply -f case1-daemonset-deploy-cadvisor.yaml
+root@k8s-master1:/usr/local/src/1.prometheus-case-files# kubectl apply -f case1-daemonset-deploy-cadvisor.yaml
 daemonset.apps/cadvisor created
 ## 查看pod
 root@k8s-master1:/usr/local/src/prometheus-case-files# kubectl get pod -n monitoring
@@ -1423,8 +1423,21 @@ pod/prometheus-server-855dd68677-wbdxg   1/1     Running   0          54s
 NAME                    TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)          AGE
 service/node-exporter   NodePort   10.100.54.21    <none>        9100:39100/TCP   9m35s
 service/prometheus      NodePort   10.100.179.36   <none>        9090:30090/TCP   47s
-```
+## 部署nginx应用
+root@k8s-master1:/usr/local/src/1.prometheus-case-files# kubectl apply -f case3-4-nginx.yaml 
+deployment.apps/magedu-nginx-deployment created
+service/magedu-nginx-service created
+## 查看部署的资源
+root@k8s-master1:/usr/local/src/1.prometheus-case-files# kubectl get pod,svc -n magedu -o wide
+NAME                                            READY   STATUS    RESTARTS     AGE    IP               NODE           NOMINATED NODE   READINESS GATES
+pod/magedu-jenkins-deployment-db96bdb96-8vjpm   1/1     Running   2 (4d ago)   11d    10.200.107.220   172.31.7.113   <none>           <none>
+pod/magedu-nginx-deployment-748c55bb6b-m95qh    2/2     Running   0            5m7s   10.200.36.97     172.31.7.111   <none>           <none>
 
+NAME                             TYPE       CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE    SELECTOR
+service/magedu-jenkins-service   NodePort   10.100.207.62    <none>        80:38080/TCP                 11d    app=magedu-jenkins
+service/magedu-nginx-service     NodePort   10.100.136.118   <none>        80:30092/TCP,443:30093/TCP   5m7s   app=magedu-nginx-selector
+
+```
 * 访问prometheus
 ![](pictures/prometheus-access-02.png)
 
