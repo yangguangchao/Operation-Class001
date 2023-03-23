@@ -387,3 +387,82 @@ kube-state-metrics-7d6bc6767b-mrlxd        1/1     Running   0              33s
 
 # 扩展： 
 ## 1.基于HPA控制器对pod副本实现弹性伸缩
+cat  php-apache.yaml
+piVersion: apps/v1
+kind: Deployment
+metadata:
+  name: php-apache
+spec:
+  selector:
+    matchLabels:
+      run: php-apache
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: php-apache
+    spec:
+      containers:
+      - name: php-apache
+        image: registry.cn-beijing.aliyuncs.com/ygc/hpa-example:v1.0.0
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: 500m
+          requests:
+            cpu: 200m
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-apache
+  labels:
+    run: php-apache
+spec:
+  ports:
+  - port: 80
+  selector:
+    run: php-apache
+
+cat php-apache-hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: php-apache
+  namespace: test
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1 #api版本
+    kind: Deployment #资源类型
+    name: php-apache #资源名称
+  maxReplicas: 5
+  minReplicas: 1
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60 #HPA 控制器会维持扩缩目标中的 Pods 的平均资源利用率在 60%
+#  behavior:
+#    scaleDown: #缩容策略配置
+#      stabilizationWindowSeconds: 120 #稳定窗口时间120秒
+#      policies:
+#      - type: Pods
+#        value: 1
+#        periodSeconds: 60 #允许一分钟内做多缩容一个副本
+#      - type: Percent
+#        value: 20
+#        periodSeconds: 60 #允许在一分钟内最多缩容当前副本个数的百分之二十
+#      selectPolicy: Min #缩容选择策略，选择缩容最小的副本
+#    scaleUp: #扩容策略配置
+#      stabilizationWindowSeconds: 60 #稳定窗口时间60秒
+#      policies:
+#      - type: Pods
+#        value: 2
+#        periodSeconds: 60 #允许一分钟内最多扩容两个pod
+#      - type: Percent
+#        value: 300
+#        periodSeconds: 60 #许在一分钟内最多扩容当前副本个数的百分之三百
+#      selectPolicy: Max
