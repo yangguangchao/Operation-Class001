@@ -387,6 +387,7 @@ kube-state-metrics-7d6bc6767b-mrlxd        1/1     Running   0              33s
 
 # 扩展： 
 ## 1.基于HPA控制器对pod副本实现弹性伸缩
+```bash
 cat  php-apache.yaml
 piVersion: apps/v1
 kind: Deployment
@@ -466,3 +467,5 @@ spec:
 #        value: 300
 #        periodSeconds: 60 #许在一分钟内最多扩容当前副本个数的百分之三百
 #      selectPolicy: Max
+kubectl run -i --tty load-generator2 --rm --image=busybox:1.28 --restart=Never -- /bin/sh -c "while sleep 0.01; do wget -q -O- http://php-apache.test; done"
+```
