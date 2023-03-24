@@ -467,6 +467,8 @@ rules:
   - services
   - endpoints
   - pods
+  - services/proxy
+  - pods/proxy
   - nodes/proxy
   verbs:
   - get
@@ -685,7 +687,110 @@ root@haproxy1:~# curl -X POST 127.0.0.1:9090/-/reload
 ```
 * prometheus访问测试
 ![](pictures/prometheus-access-03.png)
-* 由于prometheus在集群外部无法访问集群内的pod，所以pod只能发现不能采集信息，后面研究一下使用kubernetes api代理方式监控
+* 由于prometheus在集群外部无法访问集群内的pod，所以pod只能发现不能采集信息，可以使用kubernetes api代理方式监控。生产建议使用prometheus集群联邦，集群外通过采集集群内prometheus接口的方式
+## 4.4 扩展：外部prometheus通过kubernetes api采集pod监控接口数据配置
+```bash
+## 指定namespace 的pod
+  - job_name: 'kube-pod-proxy-api'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true                    # 跳过服务器证书验证，当然也可以用 ca_file 配置服务器证书
+    bearer_token_file: /apps/prometheus/k8s.token   # 文件中存有 ServiceAccount token
+    kubernetes_sd_configs:                          # 服务发现配置
+      - api_server: https://172.17.31.101:6443                # K8S API 地址
+        role: pod
+        tls_config:                                 # 这部分跟上面差不多
+          insecure_skip_verify: true
+        bearer_token_file: /apps/prometheus/k8s.token
+        namespaces: ##指定采集的namespace信息
+          names:
+          - myserver
+          - magedu
+    relabel_configs:
+    # 如果定义了 `prometheus.io/port` 注解，则用它覆盖 Pod 定义中的端口号
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+      action: replace
+      regex: (\d+)
+      replacement: $1
+      target_label: __meta_kubernetes_pod_container_port_number
+    # 动态构建 K8S proxy API 地址
+    - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_pod_name, __meta_kubernetes_pod_container_port_number]
+      action: replace
+      regex: (.+);(.+);(.+)
+      replacement: api/v1/namespaces/$1/pods/$2:$3/proxy/metrics
+      target_label: __metrics_path__
+    # 通过 `prometheus.io/path` 注解自定义抓取路径
+    - source_labels: [__metrics_path__, __meta_kubernetes_pod_annotation_prometheus_io_path]
+      action: replace
+      regex: (.+)/metrics;/?(.+)
+      replacement: $1/$2
+      target_label: __metrics_path__
+    # Host 和 Port 是确定的
+    - source_labels: []
+      action: replace
+      regex: ""
+      replacement: 172.17.31.101:6443
+      target_label: __address__
+    # 将一些元信息注入到 metrics 标签中
+    - action: labelmap
+      regex: __meta_kubernetes_pod_label_(.+)
+    - source_labels: [__meta_kubernetes_namespace]
+      action: replace
+      target_label: k8s_namespace
+    - source_labels: [__meta_kubernetes_pod_name]
+      action: replace
+      target_label: k8s_pod_name
+## #指定Pod发现条件
+  - job_name: 'kube-pod-proxy-api'
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true                    # 跳过服务器证书验证，当然也可以用 ca_file 配置服务器证书
+    bearer_token_file: /apps/prometheus/k8s.token   # 文件中存有 ServiceAccount token
+    kubernetes_sd_configs:                          # 服务发现配置
+      - api_server: https://172.17.31.101:6443                # K8S API 地址
+        role: pod
+        tls_config:                                 # 这部分跟上面差不多
+          insecure_skip_verify: true
+        bearer_token_file: /apps/prometheus/k8s.token
+    relabel_configs:
+    # 只抓取包含 `prometheus.io/scrape: true` annotation 的 Pod
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+      action: keep
+      regex: 'true'
+    # 如果定义了 `prometheus.io/port` 注解，则用它覆盖 Pod 定义中的端口号
+    - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+      action: replace
+      regex: (\d+)
+      replacement: $1
+      target_label: __meta_kubernetes_pod_container_port_number
+    # 动态构建 K8S proxy API 地址
+    - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_pod_name, __meta_kubernetes_pod_container_port_number]
+      action: replace
+      regex: (.+);(.+);(.+)
+      replacement: api/v1/namespaces/$1/pods/$2:$3/proxy/metrics
+      target_label: __metrics_path__
+    # 通过 `prometheus.io/path` 注解自定义抓取路径
+    - source_labels: [__metrics_path__, __meta_kubernetes_pod_annotation_prometheus_io_path]
+      action: replace
+      regex: (.+)/metrics;/?(.+)
+      replacement: $1/$2
+      target_label: __metrics_path__
+    # Host 和 Port 是确定的
+    - source_labels: []
+      action: replace
+      regex: ""
+      replacement: 172.17.31.101:6443
+      target_label: __address__
+    # 将一些元信息注入到 metrics 标签中
+    - action: labelmap
+      regex: __meta_kubernetes_pod_label_(.+)
+    - source_labels: [__meta_kubernetes_namespace]
+      action: replace
+      target_label: k8s_namespace
+    - source_labels: [__meta_kubernetes_pod_name]
+      action: replace
+      target_label: k8s_pod_name
+```
 # 扩展： 
 ## 1.基于HPA控制器对pod副本实现弹性伸缩
 ```bash
