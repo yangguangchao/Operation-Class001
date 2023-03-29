@@ -58,7 +58,19 @@ root@haproxy1:~# curl -X PUT -d '{"id": "node-exporter113","name": "node-exporte
 
 # 2.Prometheus监控JAVA服务(Tomcat)、Redis、MySQL、HAProxy
 # 3.总结prometheus基于exporter进行指标数据采集的流程
+## 3.1 prometheus采集exporter数据采集流程
+![](pictures/exporter-01.png)
+* Exporter 是一个采集监控数据并通过 Prometheus 监控规范对外提供数据的组件，它负责从目标系统（Your 服务）搜集数据，并将其转化为 Prometheus 支持的格式
+* Prometheus 会周期性地调用 Exporter 提供的 metrics 数据接口来获取数据
+## 3.2 Exporter分类
+* 直接采集：这一类Exporter直接内置了对Prometheus监控的支持，比如cAdvisor，Kubernetes，Etcd，Gokit等，都直接内置了用于向Prometheus暴露监控数据的端点
+* 间接采集：间接采集，原有监控目标并不直接支持Prometheus，因此我们需要通过Prometheus提供的Client Library编写该监控目标的监控采集程序。例如： Mysql Exporter，JMX Exporter，Consul Exporter等。
 # 4.Prometheus集合AlertManager实现邮件、钉钉、微信告警
+## 4.1 安装alertmanager
+## 4.2 邮件告警
+## 4.3 钉钉告警
+## 4.4 微信告警
+## 4.5 告警路由
 # 5.基于钉钉告警模板与企业微信告警模板实现自定义告警内容
 
 # 扩展：
