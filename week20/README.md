@@ -190,10 +190,252 @@ root@haproxy1:~# curl -X POST 127.0.0.1:9090/-/reload
 * 间接采集：间接采集，原有监控目标并不直接支持Prometheus，因此我们需要通过Prometheus提供的Client Library编写该监控目标的监控采集程序。例如： Mysql Exporter，JMX Exporter，Consul Exporter等。
 # 4.Prometheus集合AlertManager实现邮件、钉钉、微信告警
 ## 4.1 安装alertmanager
+```bash
+## 下载alertmanager
+root@haproxy1:~# cd /apps/
+root@haproxy1:/apps# wget https://ghproxy.com/github.com/prometheus/alertmanager/releases/download/v0.25.0/alertmanager-0.25.0.linux-amd64.tar.gz
+## 解压安装包
+root@haproxy1:/apps# tar xf alertmanager-0.25.0.linux-amd64.tar.gz
+## 为alertmanager做一个软连方便后续管理
+root@haproxy1:/apps# ln -s alertmanager-0.25.0.linux-amd64 alertmanager
+## 创建service文件
+root@haproxy1:/apps# vim /etc/systemd/system/alertmanager.service
+[Unit]
+Description=Prometheus alertmanager
+After=network.target
+
+[Service]
+ExecStart=/apps/alertmanager/alertmanager --config.file="/apps/alertmanager/alertmanager.yml"
+
+[Install]
+WantedBy=multi-user.target
+## 启动服务并加入开机启动项
+root@haproxy1:/apps# systemctl daemon-reload && systemctl restart alertmanager && systemctl enable alertmanager
+Created symlink /etc/systemd/system/multi-user.target.wants/alertmanager.service → /etc/systemd/system/alertmanager.service.
+## 查看服务状态
+root@haproxy1:/apps# systemctl status alertmanager
+```
+* 浏览器访问alertmanager
+![](pictures/alertmanager-access-01.png)
 ## 4.2 邮件告警
+```bash
+## 配置邮箱告警配置
+root@haproxy1:/apps# cd alertmanager
+root@haproxy1:/apps/alertmanager# vi alertmanager.yml
+global:
+  resolve_timeout: 2m
+  smtp_from: "alert@yanggc.cn"
+  smtp_smarthost: 'smtp.exmail.qq.com:465'
+  smtp_auth_username: "alert@yanggc.cn"
+  smtp_auth_password: "******"
+  smtp_require_tls: false
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 3m
+  receiver: 'mail'
+
+receivers:
+  - name: 'mail'
+    email_configs:
+    - to: 'yangguangchao@yanggc.cn'
+      send_resolved: true
+## 检查配置文件
+root@haproxy1:/apps/alertmanager# ./amtool check-config alertmanager.yml 
+Checking 'alertmanager.yml'  SUCCESS
+Found:
+ - global config
+ - route
+ - 0 inhibit rules
+ - 1 receivers
+ - 0 templates
+## 重新加载alertmanager配置
+root@haproxy1:/apps/alertmanager# curl -lvs -X POST "http://localhost:9093/-/reload"
+## 配置prometheus alertmanager和rule_files
+root@haproxy1:/apps/alertmanager# cd ../prometheus/
+root@haproxy1:/apps/prometheus# vi prometheus.yml
+global:
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - 127.0.0.1:9093
+
+rule_files:
+  - rules/*.yml
+
+scrape_configs:
+  - job_name: "prometheus"
+
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: 'kubernetes-apiservers-monitor' 
+    kubernetes_sd_configs: 
+    - role: endpoints
+      api_server: https://172.31.7.101:6443
+      tls_config: 
+        insecure_skip_verify: true  
+      bearer_token_file: /apps/prometheus/k8s.token 
+    scheme: https 
+    tls_config: 
+      insecure_skip_verify: true 
+    bearer_token_file: /apps/prometheus/k8s.token 
+    relabel_configs: 
+    - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name] 
+      action: keep 
+      regex: default;kubernetes;https 
+    - source_labels: [__address__]
+      regex: '(.*):6443'
+      replacement: '${1}:9100'
+      target_label: __address__
+      action: replace
+    - source_labels: [__scheme__]
+      regex: https
+      replacement: http
+      target_label: __scheme__
+      action: replace
+
+  - job_name: 'kubernetes-nodes-monitor' 
+    scheme: http 
+    tls_config: 
+      insecure_skip_verify: true 
+    bearer_token_file: /apps/prometheus/k8s.token 
+    kubernetes_sd_configs: 
+    - role: node 
+      api_server: https://172.31.7.101:6443 
+      tls_config: 
+        insecure_skip_verify: true 
+      bearer_token_file: /apps/prometheus/k8s.token 
+    relabel_configs: 
+      - source_labels: [__address__] 
+        regex: '(.*):10250' 
+        replacement: '${1}:9100' 
+        target_label: __address__ 
+        action: replace 
+      - source_labels: [__meta_kubernetes_node_label_failure_domain_beta_kubernetes_io_region] 
+        regex: '(.*)' 
+        replacement: '${1}' 
+        action: replace 
+        target_label: LOC 
+      - source_labels: [__meta_kubernetes_node_label_failure_domain_beta_kubernetes_io_region] 
+        regex: '(.*)' 
+        replacement: 'NODE' 
+        action: replace 
+        target_label: Type 
+      - source_labels: [__meta_kubernetes_node_label_failure_domain_beta_kubernetes_io_region] 
+        regex: '(.*)' 
+        replacement: 'K8S-test' 
+        action: replace 
+        target_label: Env 
+      - action: labelmap 
+        regex: __meta_kubernetes_node_label_(.+) 
+
+  - job_name: 'kube-cadvisor'
+    kubernetes_sd_configs:
+    - api_server: https://172.31.7.101:6443 
+      role: node
+      bearer_token_file: /apps/prometheus/k8s.token
+      tls_config:
+        insecure_skip_verify: true    
+    bearer_token_file: /apps/prometheus/k8s.token
+    tls_config:
+      insecure_skip_verify: true 
+    scheme: https
+    relabel_configs:
+    - action: labelmap
+      regex: __meta_kubernetes_node_label_(.+)
+    - target_label: __address__
+      replacement: 172.31.7.101:6443
+    - source_labels: [__meta_kubernetes_node_name]
+      regex: (.+)
+      target_label: __metrics_path__
+      replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+## 配置prometheus告警规则
+root@haproxy1:/apps/prometheus# mkdir rules
+root@haproxy1:/apps/prometheus# cd rules/
+root@haproxy1:/apps/prometheus/rules# vi server_rules.yml
+groups:
+  - name: alertmanager_pod.rules
+    rules:
+    - alert: Pod_all_cpu_usage
+      expr: (sum by(name)(rate(container_cpu_usage_seconds_total{image!=""}[5m]))*100) > 1
+      for: 10s
+      labels:
+        severity: critical
+        service: pods
+        type: pod-cpu
+        project: myserver
+      annotations:
+        description: 容器 {{ $labels.name }} CPU 资源利用率大于 10% , (current value is {{ $value }})
+        summary: Dev CPU 负载告警
+
+    - alert: Pod_all_memory_usage  
+      #expr: sort_desc(avg by(name)(irate(container_memory_usage_bytes{name!=""}[5m]))*100) > 10  #内存大于10%
+      expr: sort_desc(avg by(name)(irate(container_memory_usage_bytes{name!=""}[5m]))*1000) > 1  #内存大于10%
+      for: 10s
+      labels:
+        severity: critical
+        service: pods
+        type: pod-memory
+        project: myserver
+      annotations:
+        description: 容器 {{ $labels.name }} Memory 资源利用率大于 2G , (current value is {{ $value }})
+        summary: Dev Memory 负载告警
+
+    - alert: Pod_all_network_receive_usage
+      expr: sum by (name)(irate(container_network_receive_bytes_total{container_name="POD"}[1m])) > 1
+      for: 10s
+      labels:
+        severity: critical
+        service: pods
+        type: pod-network-receive
+        project: myserver
+      annotations:
+        description: 容器 {{ $labels.name }} network_receive 资源利用率大于 50M , (current value is {{ $value }})
+
+    - alert: node内存可用大小 
+      expr: node_memory_MemFree_bytes > 1 #故意写错的
+      for: 10s
+      labels:
+        severity: critical
+        project: node
+      annotations:
+        description: node节点 {{ $labels.name }} 的可用内存大于1字节，当前值 {{ $value }}
+
+    - alert: 磁盘容量
+      expr: 100-(node_filesystem_free_bytes{fstype=~"ext4|xfs"}/node_filesystem_size_bytes {fstype=~"ext4|xfs"}*100) > 5  #磁盘容量利用率大于80%
+      for: 2s
+      labels:
+        severity: critical
+      annotations:
+        summary: "{{$labels.mountpoint}} 磁盘分区使用率过高！"
+        description: "{{$labels.mountpoint }} 磁盘分区使用大于5%(目前使用:{{$value}}%)"
+
+    - alert: 磁盘容量
+      expr: 100-(node_filesystem_free_bytes{fstype=~"ext4|xfs"}/node_filesystem_size_bytes {fstype=~"ext4|xfs"}*100) > 3 #磁盘容量利用率大于60%
+      for: 2s
+      labels:
+        severity: warning
+      annotations:
+        summary: "{{$labels.mountpoint}} 磁盘分区使用率过高！"
+        description: "{{$labels.mountpoint }} 磁盘分区使用大于3%(目前使用:{{$value}}%)"
+## 重新加载prometheus配置
+root@haproxy1:/apps/prometheus/rules# curl -X POST 127.0.0.1:9090/-/reload
+```
+* prometheus alert查看
+![](pictures/prometheus-alerts-access-01.png)
+* alertmanager alert查看
+![](pictures/alertmanager-alerting-access-02.png)
+* 报警邮件查看
+![](pictures/alert-email-access-01.png)
+
 ## 4.3 钉钉告警
 ## 4.4 微信告警
-## 4.5 告警路由
+
 # 5.基于钉钉告警模板与企业微信告警模板实现自定义告警内容
 
 # 扩展：
