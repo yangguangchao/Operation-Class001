@@ -425,6 +425,13 @@ groups:
         description: "{{$labels.mountpoint }} 磁盘分区使用大于3%(目前使用:{{$value}}%)"
 ## 重新加载prometheus配置
 root@haproxy1:/apps/prometheus/rules# curl -X POST 127.0.0.1:9090/-/reload
+## 查看当前告警
+root@haproxy1:/apps/prometheus/rules# cd /apps/alertmanager/
+root@haproxy1:/apps/alertmanager# ./amtool alert --alertmanager.url=http://127.0.0.1:9093
+Alertname             Starts At                Summary           State   
+磁盘容量                  2023-03-30 14:32:05 UTC  /boot 磁盘分区使用率过高！  active  
+磁盘容量                  2023-03-30 14:32:05 UTC  / 磁盘分区使用率过高！      active  
+磁盘容量                  2023-03-30 14:32:05 UTC  /boot 磁盘分区使用率过高！  active  
 ```
 * prometheus alert查看
 ![](pictures/prometheus-alerts-access-01.png)
@@ -432,10 +439,273 @@ root@haproxy1:/apps/prometheus/rules# curl -X POST 127.0.0.1:9090/-/reload
 ![](pictures/alertmanager-alerting-access-02.png)
 * 报警邮件查看
 ![](pictures/alert-email-access-01.png)
+* 常用prometheus告警rules
+  * [node roles](rules/node.yml)
+  * [mysql roles](rules/mysql.yml)
+  * [nginx rules](rules/nginx.yml)
 
 ## 4.3 钉钉告警
-## 4.4 微信告警
+```bash
+## 脚本测试钉钉机器人接口
+root@haproxy1:~# mkdir dingtalk
+root@haproxy1:~# cd dingtalk/
+root@haproxy1:~/dingtalk# vi dingding-keywords.sh
+#!/bin/bash
+source /etc/profile
+MESSAGE=$1
+/usr/bin/curl -X "POST" 'https://oapi.dingtalk.com/robot/send?access_token=***' \
+-H 'Content-Type: application/json' \
+-d '{"msgtype": "text",
+     "text": {
+         "content": "'${MESSAGE}'"
+     }
+}'
 
+root@haproxy1:~/dingtalk# bash dingding-keywords.sh "alertname=node,instaince=172.31.7.101"
+{"errcode":0,"errmsg":"ok"}
+```
+* 查看钉钉
+![](pictures/dingtalk-scripts-access-01.png)
+
+```bash
+## 下载prometheus-webhook-dingtalk安装包
+root@haproxy1:~# cd /apps/
+root@haproxy1:/apps# wget https://ghproxy.com/github.com/timonwong/prometheus-webhook-dingtalk/releases/download/v2.1.0/prometheus-webhook-dingtalk-2.1.0.linux-amd64.tar.gz
+## 解压安装包
+root@haproxy1:/apps# tar -xf prometheus-webhook-dingtalk-2.1.0.linux-amd64.tar.gz
+## 软连一个目录
+root@haproxy1:/apps# ln -s prometheus-webhook-dingtalk-2.1.0.linux-amd64 prometheus-webhook-dingtalk
+## 修改配置文件
+root@haproxy1:/apps# cd prometheus-webhook-dingtalk
+root@haproxy1:/apps/prometheus-webhook-dingtalk# cp config.example.yml config.yml 
+root@haproxy1:/apps/prometheus-webhook-dingtalk# vi config.yml
+targets:
+  alertname:
+    url: https://oapi.dingtalk.com/robot/send?access_token=***
+## 配置service文件
+root@haproxy1:/apps/prometheus-webhook-dingtalk# vim /etc/systemd/system/prometheus-webhook-dingtalk.service
+[Unit]
+Description=prometheus-webhook-dingtalk
+After=network-online.target
+
+[Service]
+Restart=on-failure
+ExecStart=/apps/prometheus-webhook-dingtalk/prometheus-webhook-dingtalk --config.file=/apps/prometheus-webhook-dingtalk/config.yml --web.enable-ui --web.enable-lifecycle
+
+[Install]
+WantedBy=multi-user.target
+## 启动服务
+root@haproxy1:/apps/prometheus-webhook-dingtalk# systemctl daemon-reload && systemctl start prometheus-webhook-dingtalk
+## 检查服务监听端口
+root@haproxy1:/apps/prometheus-webhook-dingtalk# ss -tnl | grep 8060
+LISTEN 0      4096               *:8060             *:*  
+## alertmanager添加钉钉告警通道
+root@haproxy1:~# cd /apps/alertmanager
+root@haproxy1:/apps/alertmanager# vi alertmanager.yml
+global:
+  resolve_timeout: 3m
+  smtp_from: "alert@yanggc.cn"
+  smtp_smarthost: 'smtp.exmail.qq.com:465'
+  smtp_auth_username: "alert@yanggc.cn"
+  smtp_auth_password: "***"
+  smtp_require_tls: false
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 3m
+  repeat_interval: 5m
+  receiver: 'dingding'
+
+receivers:
+  - name: 'mail'
+    email_configs:
+    - to: 'yangguangchao@yanggc.cn'
+      send_resolved: true
+
+  - name: 'dingding'
+    webhook_configs:
+    - url: 'http://localhost:8060/dingtalk/alertname/send'
+## 重新加载alertmanager配置
+root@haproxy1:/apps/alertmanager# curl -X POST 127.0.0.1:9093/-/reload
+```
+* alertmanager查看配置
+![](pictures/alertmanager-access-02.png)
+* 钉钉查看告警信息
+![](pictures/dingtalk-access-02.png)
+## 4.4 微信告警
+```bash
+## alertmanager添加微信告警配置
+root@haproxy1:/apps/alertmanager# vi alertmanager.yml
+global:
+  resolve_timeout: 3m
+  smtp_from: "alert@yanggc.cn"
+  smtp_smarthost: 'smtp.exmail.qq.com:465'
+  smtp_auth_username: "alert@yanggc.cn"
+  smtp_auth_password: "***"
+  smtp_require_tls: false
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 3m
+  repeat_interval: 5m
+  receiver: 'wechat'
+
+receivers:
+  - name: 'mail'
+    email_configs:
+    - to: 'yangguangchao@yanggc.cn'
+      send_resolved: true
+
+  - name: 'dingding'
+    webhook_configs:
+    - url: 'http://localhost:8060/dingtalk/alertname/send'
+      send_resolved: true
+
+  - name: 'wechat'
+    wechat_configs:
+    - corp_id: ww9f176e23d64d5443
+      to_user: '@all'
+      agent_id: 1000002
+      api_secret: ***
+      send_resolved: true
+## 重新加载alertmanager配置
+root@haproxy1:/apps/alertmanager# curl -X POST 127.0.0.1:9093/-/reload
+```
+* 企业微信查看告警
+![](pictures/alertmanager-wechat-01.jpg)
+## 4.5 告警路由
+* 将series:node相关的报警发送到微信
+* 将series:pod先关的告警发送到邮箱
+* 将将series:storage相关的发送送到钉钉
+```bash
+## 修改prometheus rule的label配置
+root@haproxy1:/apps/alertmanager# cd ../prometheus/rules/
+root@haproxy1:/apps/prometheus/rules# vi server_rules.yml
+groups:
+  - name: alertmanager_pod.rules
+    rules:
+    - alert: Pod_all_cpu_usage
+      expr: (sum by(name)(rate(container_cpu_usage_seconds_total{image!=""}[5m]))*100) > 1
+      for: 10s
+      labels:
+        severity: critical
+        service: pods
+        type: pod-cpu
+        project: myserver
+      annotations:
+        description: 容器 {{ $labels.name }} CPU 资源利用率大于 10% , (current value is {{ $value }})
+        summary: Dev CPU 负载告警
+
+    - alert: Pod_all_memory_usage  
+      #expr: sort_desc(avg by(name)(irate(container_memory_usage_bytes{name!=""}[5m]))*100) > 10  #内存大于10%
+      expr: sort_desc(avg by(name)(irate(container_memory_usage_bytes{name!=""}[5m]))*1000) > 1  #内存大于10%
+      for: 10s
+      labels:
+        severity: critical
+        service: pods
+        type: pod-memory
+        project: myserver
+      annotations:
+        description: 容器 {{ $labels.name }} Memory 资源利用率大于 2G , (current value is {{ $value }})
+        summary: Dev Memory 负载告警
+
+    - alert: Pod_all_network_receive_usage
+      expr: sum by (name)(irate(container_network_receive_bytes_total{container_name="POD"}[1m])) > 1
+      for: 10s
+      labels:
+        severity: critical
+        service: pods
+        type: pod-network-receive
+        project: myserver
+      annotations:
+        description: 容器 {{ $labels.name }} network_receive 资源利用率大于 50M , (current value is {{ $value }})
+
+    - alert: node内存可用大小 
+      expr: node_memory_MemFree_bytes > 1 #故意写错的
+      for: 10s
+      labels:
+        severity: critical
+        service: node
+        project: node
+      annotations:
+        description: node节点 {{ $labels.name }} 的可用内存大于1字节，当前值 {{ $value }}
+
+    - alert: 磁盘容量
+      expr: 100-(node_filesystem_free_bytes{fstype=~"ext4|xfs"}/node_filesystem_size_bytes {fstype=~"ext4|xfs"}*100) > 5  #磁盘容量利用率大于80%
+      for: 2s
+      labels:
+        severity: critical
+        service: storage
+      annotations:
+        summary: "{{$labels.mountpoint}} 磁盘分区使用率过高！"
+        description: "{{$labels.mountpoint }} 磁盘分区使用大于5%(目前使用:{{$value}}%)"
+
+    - alert: 磁盘容量
+      expr: 100-(node_filesystem_free_bytes{fstype=~"ext4|xfs"}/node_filesystem_size_bytes {fstype=~"ext4|xfs"}*100) > 3 #磁盘容量利用率大于60%
+      for: 2s
+      labels:
+        severity: warning
+        service: storage
+      annotations:
+        summary: "{{$labels.mountpoint}} 磁盘分区使用率过高！"
+        description: "{{$labels.mountpoint }} 磁盘分区使用大于3%(目前使用:{{$value}}%)"
+## 配置alertmanager告警路由
+root@haproxy1:/apps/prometheus/rules# cd ../../alertmanager
+root@haproxy1:/apps/alertmanager# vi alertmanager.yml 
+global:
+  resolve_timeout: 3m
+  smtp_from: "alert@yanggc.cn"
+  smtp_smarthost: 'smtp.exmail.qq.com:465'
+  smtp_auth_username: "alert@yanggc.cn"
+  smtp_auth_password: "***"
+  smtp_require_tls: false
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 3m
+  repeat_interval: 5m
+  receiver: 'mail'
+  routes:
+    - receiver: 'wechat'
+      group_wait: 2s
+      match_re:
+        service: node
+    - receiver: 'dingding'
+      group_wait: 2s
+      match_re:
+        service: storage
+
+receivers:
+  - name: 'mail'
+    email_configs:
+    - to: 'yangguangchao@yanggc.cn'
+      send_resolved: true
+
+  - name: 'dingding'
+    webhook_configs:
+    - url: 'http://localhost:8060/dingtalk/alertname/send'
+      send_resolved: true
+
+  - name: 'wechat'
+    wechat_configs:
+    - corp_id: ww9f176e23d64d5443
+      to_user: '@all'
+      agent_id: 1000002
+      api_secret: ***
+      send_resolved: true
+## 重新加载prometheus和alertmanager配置
+root@haproxy1:/apps/alertmanager# curl -X POST 127.0.0.1:9090/-/reload
+root@haproxy1:/apps/alertmanager# curl -X POST 127.0.0.1:9093/-/reload
+```
+* 邮箱告警推送
+![](pictures/alertmanager-mail-03.png)
+* 微信告警推送
+![](pictures/alertmanager-wechat-03.jpg)
+* 钉钉告警推送
+![](pictures/alertmanager-dingtalk-03.png)
 # 5.基于钉钉告警模板与企业微信告警模板实现自定义告警内容
 
 # 扩展：
