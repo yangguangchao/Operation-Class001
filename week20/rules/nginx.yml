@@ -1,0 +1,28 @@
+groups:
+- name: Nginx
+  rules:
+  - alert: NginxHighHttp4xxErrorRate
+    expr: sum(rate(nginx_server_requests{code="4xx"}[1m])) by (host, instance) / sum(rate(nginx_server_requests[1m])) by (host, instance) * 100 > 30
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: Nginx high HTTP 4xx error rate (instance {{ $labels.instance }})
+      description: "Too many HTTP requests with status 4xx (> 30%)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+  - alert: NginxHighHttp5xxErrorRate
+    expr: sum(rate(nginx_server_requests{code="5xx"}[1m])) by (host, instance) / sum(rate(nginx_server_requests[1m])) by (host, instance) * 100 > 30
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: Nginx high HTTP 5xx error rate (instance {{ $labels.instance }})
+      description: "Too many HTTP requests with status 5xx (> 30%)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+  - alert: NginxLatencyHigh
+    expr: histogram_quantile(0.99, sum(rate(nginx_server_requestMsec[2m])) by (host, node)) > 3
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: Nginx latency high (instance {{ $labels.instance }})
+      description: "Nginx p99 latency is higher than 3 seconds\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
