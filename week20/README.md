@@ -576,9 +576,9 @@ root@haproxy1:/apps/alertmanager# curl -X POST 127.0.0.1:9093/-/reload
 * 企业微信查看告警
 ![](pictures/alertmanager-wechat-01.jpg)
 ## 4.5 告警路由
-* 将series:node相关的报警发送到微信
-* 将series:pod先关的告警发送到邮箱
-* 将将series:storage相关的发送送到钉钉
+* 将service:node相关的报警发送到微信
+* 将service:pod先关的告警发送到邮箱
+* 将service:storage相关的发送送到钉钉
 ```bash
 ## 修改prometheus rule的label配置
 root@haproxy1:/apps/alertmanager# cd ../prometheus/rules/
