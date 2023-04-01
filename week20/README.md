@@ -76,7 +76,7 @@ root@k8s-master1:/usr/local/src/1.prometheus-case-files/app-monitor-case/tomcat/
 * tomcat访问测试
 ![](pictures/tomcat-access-01.png)
 ```bash
-## 更换tomcat kubernetes资源编排yaml镜像
+## 更换tomcat资源编排yaml中的镜像
 root@k8s-master1:/usr/local/src/1.prometheus-case-files/app-monitor-case/tomcat/tomcat-image# cd ../yaml/
 ## 部署tomcat和service
 root@k8s-master1:/usr/local/src/1.prometheus-case-files/app-monitor-case/tomcat/yaml# kubectl apply -f ./
@@ -108,7 +108,7 @@ root@haproxy1:~# curl -X POST 127.0.0.1:9090/-/reload
 * prometheus查看target
 ![](pictures/prometheus-tomcat-target-access-01.png)
 * grafana导入[dashboard](https://raw.githubusercontent.com/nlighten/tomcat_exporter/master/dashboard/example.json)
-![](pictures/prometheus-tomcat-target-access-01.png)
+![](pictures/grafana-tomcat-dashboard-01.png)
 ## 2.2 prometheus 监控redis
 ```bash
 ## 部署redis服务
@@ -219,7 +219,7 @@ root@haproxy1:/apps# systemctl status alertmanager
 ![](pictures/alertmanager-access-01.png)
 ## 4.2 邮件告警
 ```bash
-## 配置邮箱告警配置
+## 配置alertmanager邮箱告警
 root@haproxy1:/apps# cd alertmanager
 root@haproxy1:/apps/alertmanager# vi alertmanager.yml
 global:
@@ -550,21 +550,29 @@ root@haproxy1:/apps/alertmanager# curl -X POST 127.0.0.1:9093/-/reload
 ## 4.4 微信告警
 ### 4.4.1 添加微信告警应用
 * 1. 扫码登录微信企业管理后天
-![](pictures/wechat-setup-01.png)
+![](pictures/wechat-setup-01.png)  
+
 * 2. 应用管理中创建应用
-![](pictures/wechat-setup-02.png)
+![](pictures/wechat-setup-02.png)  
+
 * 3. 填写应用信息
-![](pictures/wechat-setup-03.png)
+![](pictures/wechat-setup-03.png)  
+
 * 4. 网页授权及JS-SDK配置可信域名
-![](pictures/wechat-setup-04.png)
+![](pictures/wechat-setup-04.png)  
+
 * 5. 填写域名信息
-![](pictures/wechat-setup-05.png)
+![](pictures/wechat-setup-05.png)  
+
 * 6. 配置企业可信IP
-![](pictures/wechat-setup-06.png)
+![](pictures/wechat-setup-06.png)  
+
 * 7. 查看secret
-![](pictures/wechat-setup-07.png)
+![](pictures/wechat-setup-07.png)  
+
 * 8. 我的企业中查看企业ID
-![](pictures/wechat-setup-08.png)
+![](pictures/wechat-setup-08.png)  
+
 ```bash
 ## 验证微信域名验证
 ~ > curl https://yanggc.cn/WW_verify_cnl8He3s0L9MHOe8.txt
