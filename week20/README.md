@@ -561,16 +561,20 @@ root@haproxy1:/apps/alertmanager# curl -X POST 127.0.0.1:9093/-/reload
 * 4. 网页授权及JS-SDK配置可信域名
 ![](pictures/wechat-setup-04.png)  
 
-* 5. 填写域名信息
+* 5. 填写域名信息  
+
 ![](pictures/wechat-setup-05.png)  
 
-* 6. 配置企业可信IP
+* 6. 配置企业可信IP  
+
 ![](pictures/wechat-setup-06.png)  
 
-* 7. 查看secret
+* 7. 查看secret  
+
 ![](pictures/wechat-setup-07.png)  
 
-* 8. 我的企业中查看企业ID
+* 8. 我的企业中查看企业ID  
+
 ![](pictures/wechat-setup-08.png)  
 
 ```bash
