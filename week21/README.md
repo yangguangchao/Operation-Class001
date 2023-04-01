@@ -289,11 +289,11 @@ exit
 ![](pictures/rabbitmq-add-hosts-01.png)
 * 4.授予 mall 用户读写 vhost 权限
   * 选择mall用户
-  * ![](pictures/rabbitmq-select-mall-01.png)
+  ![](pictures/rabbitmq-select-mall-01.png)
   * 授权vhosts
-  * ![](pictures/rabbitmq-grant-mall-hosts-01.png)
+  ![](pictures/rabbitmq-grant-mall-hosts-01.png)
   * 验证权限
-  * ![](pictures/rabiitmq-check-mall-01.png)
+  ![](pictures/rabiitmq-check-mall-01.png)
 ### 1.2.5 minio初始化
 * 已配置默认使用的 USER 与 PASSWORD 均为 minioadmin
 ```bash
@@ -348,7 +348,7 @@ root@docker1:~# cd mall/mall-swarm/config/
 root@docker1:~/mall/mall-swarm/config# sed -e 's/db:3306/172.31.7.120:3306/g' -e 's/192.168.3.101:9090/172.31.7.120:9090/g' -e 's/host: logstash/host: 172.31.7.120/g' -e 's/host: redis/host: 172.31.7.120/g' -e 's/host: mongo/host: 172.31.7.120/g' -e 's/host: rabbit/host: 172.31.7.120/g' -e 's/uris: es:9200/uris: 172.31.7.120:9200/g' -e 's/mall-gateway:8201/mall-gateway-service:8201/g' -i admin/mall-admin-prod.yaml gateway/mall-gateway-prod.yaml portal/mall-portal-prod.yaml search/mall-search-prod.yaml
 
 ```
-## 2.2 将配置信息添加到Nacos中
+## 2.2 将配置文件添加到Nacos中
 * 1.添加后台管理配置
 ![](pictures/nacos-add-config-01.png)
 * 2.添加网关服务配置
@@ -768,9 +768,34 @@ mkdir -p ./dist
 cp -r ../dist/* ./dist/
 docker build -t harbor.yanggc.cn/magedu/mall-admin-web:$TAG .
 docker push harbor.yanggc.cn/magedu/mall-admin-web:$TAG
-## 修改skywalking地址
+## 修改Dockerfile配置
+root@haproxy1:~/mall-admin-web/docker-images# vi Dockerfile
+FROM ubuntu:20.04
+
+RUN rm -rf /etc/localtime && ln -sv /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && apt update && apt  install iproute2  ntpdate tcpdump telnet traceroute  gcc openssh-server lrzsz tree  openssl libssl-dev libpcre3 libpcre3-dev zlib1g-dev  iotop unzip zip make libgetopt-argvfile-perl vim -y
+
+ADD openresty-1.21.4.1.tar.gz /usr/local/src/
+RUN cd /usr/local/src/openresty-1.21.4.1/ && ./configure --prefix=/apps/openresty \
+  --with-luajit \
+  --with-pcre \
+  --with-http_iconv_module \
+  --with-http_realip_module \
+  --with-http_sub_module \
+  --with-http_stub_status_module  \
+  --with-stream \
+  --with-stream_ssl_module && make && make install
+
+RUN mkdir /apps/openresty/nginx/conf/conf.d -pv && mkdir /data
+ADD skywalking-nginx-lua-0.6.0 /data/skywalking-nginx-lua-0.6.0
+ADD nginx.conf /apps/openresty/nginx/conf/nginx.conf
+ADD conf.d /apps/openresty/nginx/conf/conf.d
+COPY dist /apps/openresty/nginx/html
+CMD ["/apps/openresty/nginx/sbin/nginx"]
+
+## 修改nginx配置
 root@haproxy1:~/mall-admin-web/docker-images# vi conf.d/myserver.conf
  19         require("skywalking.client"):startBackendTimer("http://172.31.7.120:12800")
+ 33         server_name   mall.ygc.cn;
 ## 编译镜像
 root@haproxy1:~/mall-admin-web/docker-images# bash build-command.sh v1 
 ```
@@ -855,3 +880,9 @@ mall-search-deployment-5468d46b8-4mx5t              1/1     Running   0         
 ```
 * 浏览器使用域名访问并用开发模式查看api地址
 ![](pictures/mall-admin-haproxy-domain-access-02.png)
+
+## 6.5 skywalking验证
+* 浏览器刷新几次mall-admin-web页面，查看skywalking
+![](pictures/mall-admin-skywalking-access-01.png)
+* skywalking查看endpoint
+![](pictures/mall-admin-skywalking-access-02.png)
